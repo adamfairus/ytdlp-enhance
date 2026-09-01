@@ -18,7 +18,7 @@ pub struct Cli {
     pub url: Option<String>,
 
     /// Desired quality tier or resolution (e.g. 'best', '4k', '1440', '1080', '720', '480', 'sd', 'hd')
-    #[arg(short = 'q', long = "quality")]
+    #[arg(short = 'Q', long = "quality")]
     pub quality: Option<String>,
 
     /// Use a specific preset (e.g. 'video', 'music', 'tiktok')
@@ -44,6 +44,18 @@ pub struct Cli {
     /// Bypass local metadata cache
     #[arg(long, help = "Bypass local metadata cache")]
     pub no_cache: bool,
+
+    /// Enable verbose debug logging
+    #[arg(short = 'v', long, global = true, help = "Enable verbose debug logging")]
+    pub verbose: bool,
+
+    /// Suppress non-essential output (quiet mode)
+    #[arg(short = 'q', long, global = true, help = "Suppress non-essential output (quiet mode)")]
+    pub quiet: bool,
+
+    /// Output lifecycle events as Newline Delimited JSON (NDJSON)
+    #[arg(long, global = true, help = "Output lifecycle events as Newline Delimited JSON (NDJSON)")]
+    pub json: bool,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -101,7 +113,7 @@ pub struct DownloadArgs {
     pub url: String,
 
     /// Override quality tier or resolution
-    #[arg(short = 'q', long = "quality")]
+    #[arg(short = 'Q', long = "quality")]
     pub quality: Option<String>,
 
     /// Enable or disable lyrics/subtitles fetching
@@ -123,6 +135,18 @@ pub struct DownloadArgs {
     /// Bypass local metadata cache
     #[arg(long, help = "Bypass local metadata cache")]
     pub no_cache: bool,
+
+    /// Enable verbose debug logging
+    #[arg(short = 'v', long, global = true, help = "Enable verbose debug logging")]
+    pub verbose: bool,
+
+    /// Suppress non-essential output (quiet mode)
+    #[arg(short = 'q', long, global = true, help = "Suppress non-essential output (quiet mode)")]
+    pub quiet: bool,
+
+    /// Output lifecycle events as Newline Delimited JSON (NDJSON)
+    #[arg(long, global = true, help = "Output lifecycle events as Newline Delimited JSON (NDJSON)")]
+    pub json: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -136,7 +160,7 @@ pub struct BatchArgs {
     pub preset: String,
 
     /// Override quality tier or resolution
-    #[arg(short = 'q', long = "quality")]
+    #[arg(short = 'Q', long = "quality")]
     pub quality: Option<String>,
 
     /// Enable or disable lyrics for the batch

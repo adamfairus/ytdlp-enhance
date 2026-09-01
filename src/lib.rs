@@ -23,6 +23,7 @@ pub mod scheduler;
 pub mod tiktok;
 
 use std::path::Path;
+use std::sync::Arc;
 use clap::Parser;
 use classifier::SmartClassifier;
 use cli::{Cli, Commands};
@@ -31,6 +32,10 @@ use config::Config;
 use doctor::Doctor;
 use downloader::Downloader;
 use error::{DlpError, Result};
+pub use event::{
+    init_logging, DownloadEvent, EventDispatcher, EventListener, JsonLinesEventListener,
+    TracingEventListener,
+};
 use interactive::run_interactive;
 use lyrics::LyricsFetcher;
 use preset::{Preset, PresetManager};
@@ -38,6 +43,14 @@ use quality::QualityPreference;
 
 pub fn run() -> Result<()> {
     let args = Cli::parse();
+    init_logging(args.verbose, args.quiet, args.json);
+
+    let mut dispatcher = EventDispatcher::default();
+    dispatcher.register(Box::new(TracingEventListener));
+    if args.json {
+        dispatcher.register(Box::new(JsonLinesEventListener));
+    }
+
     let app_config = Config::load();
     let preset_manager = PresetManager::load_all();
 
@@ -173,7 +186,7 @@ pub fn run() -> Result<()> {
         let cp_path = batch::determine_checkpoint_path(&b.inputs, effective_output_dir);
         let effective_concurrency = b.concurrency.unwrap_or(app_config.download.concurrency);
 
-        batch::run_batch(
+        batch::run_batch_with_dispatcher(
             &urls,
             &preset_manager,
             explicit_preset.as_deref(),
@@ -183,6 +196,7 @@ pub fn run() -> Result<()> {
             b.resume,
             Some(&cp_path),
             effective_concurrency,
+            Some(Arc::new(dispatcher)),
         )?;
         return Ok(());
     }
@@ -269,12 +283,20 @@ pub fn run() -> Result<()> {
     // 11. Fetch & Inspect Metadata
     println!("\n🔍 Inspecting media metadata...");
     let meta = Downloader::fetch_metadata_cached(&url, !no_cache)?;
+    dispatcher.dispatch(&DownloadEvent::MetadataFetched {
+        url: url.clone(),
+        title: meta.title.clone(),
+    });
 
     // 9. Automatic Classification / Preset Resolution
     let preset_name = if let Some(p_name) = explicit_preset {
         p_name
     } else {
         let detected = SmartClassifier::classify(&url, &meta);
+        dispatcher.dispatch(&DownloadEvent::ClassificationCompleted {
+            url: url.clone(),
+            classification: detected.clone(),
+        });
         println!("🤖 Auto-Classification: {}", detected.display_label());
         detected.default_preset_name().to_string()
     };
@@ -348,7 +370,7 @@ pub fn run() -> Result<()> {
 
     // 11. Execute Download
     let effective_output_dir = output_dir.or(app_config.download_dir.as_deref());
-    Downloader::download(&url, &preset, &effective_quality, effective_output_dir)?;
+    Downloader::download_with_dispatcher(&url, &preset, &effective_quality, effective_output_dir, Some(&dispatcher))?;
 
     // 12. Synchronize Track-by-Track Synced Lyrics (LRCLIB) for Music Mode
     if preset.write_lyrics {

@@ -2,7 +2,8 @@ use crate::metadata::VideoMetadata;
 use crate::orientation::Orientation;
 use crate::tiktok::TikTokFallback;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MediaType {
     Music,
     VerticalVideo,
@@ -27,7 +28,7 @@ impl MediaType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Classification {
     pub media_type: MediaType,
     pub confidence: f32, // 0.0 to 1.0

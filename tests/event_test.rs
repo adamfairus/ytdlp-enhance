@@ -2,7 +2,10 @@ use std::sync::{Arc, Mutex};
 
 use dlp::classifier::{Classification, MediaType};
 use dlp::engine::YtDlpEngine;
-use dlp::event::{DownloadEvent, EventDispatcher, EventListener};
+use dlp::event::{
+    init_logging, DownloadEvent, EventDispatcher, EventListener, JsonLinesEventListener,
+    TracingEventListener,
+};
 use dlp::preset::Preset;
 use dlp::quality::QualityPreference;
 
@@ -295,4 +298,301 @@ fn test_download_with_dispatcher_lifecycle_events() {
         other => panic!("Expected Failed as last event, got {:?}", other),
     }
 }
+
+#[test]
+fn test_download_event_json_serialization_all_variants() {
+    // 1. MetadataFetched
+    let ev1 = DownloadEvent::MetadataFetched {
+        url: "https://example.com/watch?v=abc".to_string(),
+        title: "Test Title".to_string(),
+    };
+    let s1 = serde_json::to_string(&ev1).unwrap();
+    let v1: serde_json::Value = serde_json::from_str(&s1).unwrap();
+    assert_eq!(v1["event"], "metadata_fetched");
+    assert_eq!(v1["url"], "https://example.com/watch?v=abc");
+    assert_eq!(v1["title"], "Test Title");
+
+    // 2. ClassificationCompleted
+    let ev2 = DownloadEvent::ClassificationCompleted {
+        url: "https://example.com/watch?v=music".to_string(),
+        classification: Classification {
+            media_type: MediaType::Music,
+            confidence: 0.96,
+            reasons: vec!["Audio-only track".to_string(), "Topic channel".to_string()],
+        },
+    };
+    let s2 = serde_json::to_string(&ev2).unwrap();
+    let v2: serde_json::Value = serde_json::from_str(&s2).unwrap();
+    assert_eq!(v2["event"], "classification_completed");
+    assert_eq!(v2["url"], "https://example.com/watch?v=music");
+    assert_eq!(v2["classification"]["media_type"], "music");
+    assert!((v2["classification"]["confidence"].as_f64().unwrap() - 0.96).abs() < 0.01);
+    assert_eq!(v2["classification"]["reasons"].as_array().unwrap().len(), 2);
+
+    // 3. DownloadStarted
+    let ev3 = DownloadEvent::DownloadStarted {
+        url: "https://example.com/video".to_string(),
+        format: "bestvideo+bestaudio/best".to_string(),
+    };
+    let s3 = serde_json::to_string(&ev3).unwrap();
+    let v3: serde_json::Value = serde_json::from_str(&s3).unwrap();
+    assert_eq!(v3["event"], "download_started");
+    assert_eq!(v3["format"], "bestvideo+bestaudio/best");
+
+    // 4. Progress
+    let ev4 = DownloadEvent::Progress {
+        percent: 75.5,
+        speed: Some("15.2MiB/s".to_string()),
+        eta: Some("00:04".to_string()),
+    };
+    let s4 = serde_json::to_string(&ev4).unwrap();
+    let v4: serde_json::Value = serde_json::from_str(&s4).unwrap();
+    assert_eq!(v4["event"], "progress");
+    assert!((v4["percent"].as_f64().unwrap() - 75.5).abs() < 0.01);
+    assert_eq!(v4["speed"], "15.2MiB/s");
+    assert_eq!(v4["eta"], "00:04");
+
+    // 5. Retry
+    let ev5 = DownloadEvent::Retry {
+        attempt: 2,
+        max_retries: 4,
+        reason: "HTTP 429 Too Many Requests".to_string(),
+    };
+    let s5 = serde_json::to_string(&ev5).unwrap();
+    let v5: serde_json::Value = serde_json::from_str(&s5).unwrap();
+    assert_eq!(v5["event"], "retry");
+    assert_eq!(v5["attempt"], 2);
+    assert_eq!(v5["max_retries"], 4);
+    assert_eq!(v5["reason"], "HTTP 429 Too Many Requests");
+
+    // 6. Fallback
+    let ev6 = DownloadEvent::Fallback {
+        from_quality: "1440p".to_string(),
+        to_quality: "1080p".to_string(),
+    };
+    let s6 = serde_json::to_string(&ev6).unwrap();
+    let v6: serde_json::Value = serde_json::from_str(&s6).unwrap();
+    assert_eq!(v6["event"], "fallback");
+    assert_eq!(v6["from_quality"], "1440p");
+    assert_eq!(v6["to_quality"], "1080p");
+
+    // 7. Completed
+    let ev7 = DownloadEvent::Completed {
+        url: "https://example.com/video".to_string(),
+        output_path: "/tmp/downloads/video.mp4".to_string(),
+    };
+    let s7 = serde_json::to_string(&ev7).unwrap();
+    let v7: serde_json::Value = serde_json::from_str(&s7).unwrap();
+    assert_eq!(v7["event"], "completed");
+    assert_eq!(v7["output_path"], "/tmp/downloads/video.mp4");
+
+    // 8. Failed
+    let ev8 = DownloadEvent::Failed {
+        url: "https://example.com/video".to_string(),
+        error: "Sign in required".to_string(),
+    };
+    let s8 = serde_json::to_string(&ev8).unwrap();
+    let v8: serde_json::Value = serde_json::from_str(&s8).unwrap();
+    assert_eq!(v8["event"], "failed");
+    assert_eq!(v8["error"], "Sign in required");
+}
+
+#[test]
+fn test_download_event_json_roundtrip() {
+    let events = vec![
+        DownloadEvent::MetadataFetched {
+            url: "https://test.com".to_string(),
+            title: "Test".to_string(),
+        },
+        DownloadEvent::ClassificationCompleted {
+            url: "https://test.com".to_string(),
+            classification: Classification {
+                media_type: MediaType::VerticalVideo,
+                confidence: 0.99,
+                reasons: vec!["TikTok URL".to_string()],
+            },
+        },
+        DownloadEvent::DownloadStarted {
+            url: "https://test.com".to_string(),
+            format: "best".to_string(),
+        },
+        DownloadEvent::Progress {
+            percent: 50.0,
+            speed: None,
+            eta: None,
+        },
+        DownloadEvent::Retry {
+            attempt: 1,
+            max_retries: 3,
+            reason: "timeout".to_string(),
+        },
+        DownloadEvent::Fallback {
+            from_quality: "4k".to_string(),
+            to_quality: "1080p".to_string(),
+        },
+        DownloadEvent::Completed {
+            url: "https://test.com".to_string(),
+            output_path: "out.mp4".to_string(),
+        },
+        DownloadEvent::Failed {
+            url: "https://test.com".to_string(),
+            error: "fatal".to_string(),
+        },
+    ];
+
+    for event in events {
+        let serialized = serde_json::to_string(&event).expect("Serialization failed");
+        let deserialized: DownloadEvent =
+            serde_json::from_str(&serialized).expect("Deserialization failed");
+        assert_eq!(event, deserialized);
+    }
+}
+
+#[test]
+fn test_json_lines_event_listener_emitting_valid_json() {
+    let listener = JsonLinesEventListener::new();
+    let events = vec![
+        DownloadEvent::MetadataFetched {
+            url: "https://example.com/1".to_string(),
+            title: "Video 1".to_string(),
+        },
+        DownloadEvent::ClassificationCompleted {
+            url: "https://example.com/2".to_string(),
+            classification: Classification {
+                media_type: MediaType::StandardVideo,
+                confidence: 0.88,
+                reasons: vec!["16:9 ratio".to_string()],
+            },
+        },
+        DownloadEvent::DownloadStarted {
+            url: "https://example.com/3".to_string(),
+            format: "1080p".to_string(),
+        },
+        DownloadEvent::Progress {
+            percent: 100.0,
+            speed: Some("20MiB/s".to_string()),
+            eta: Some("00:00".to_string()),
+        },
+        DownloadEvent::Retry {
+            attempt: 1,
+            max_retries: 3,
+            reason: "temporary connection reset".to_string(),
+        },
+        DownloadEvent::Fallback {
+            from_quality: "1080p".to_string(),
+            to_quality: "720p".to_string(),
+        },
+        DownloadEvent::Completed {
+            url: "https://example.com/4".to_string(),
+            output_path: "/out.mp4".to_string(),
+        },
+        DownloadEvent::Failed {
+            url: "https://example.com/5".to_string(),
+            error: "ExtractorError".to_string(),
+        },
+    ];
+
+    for ev in &events {
+        // on_event must execute smoothly and serialize valid JSON
+        listener.on_event(ev);
+        let s = serde_json::to_string(ev).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&s).unwrap();
+        assert!(parsed.is_object());
+        assert!(parsed.get("event").is_some());
+    }
+}
+
+#[test]
+fn test_tracing_event_listener_handles_all_variants() {
+    let listener = TracingEventListener::new();
+    let events = vec![
+        DownloadEvent::MetadataFetched {
+            url: "https://example.com/meta".to_string(),
+            title: "Meta Title".to_string(),
+        },
+        DownloadEvent::ClassificationCompleted {
+            url: "https://example.com/class".to_string(),
+            classification: Classification {
+                media_type: MediaType::Music,
+                confidence: 0.92,
+                reasons: vec!["Opus format".to_string()],
+            },
+        },
+        DownloadEvent::DownloadStarted {
+            url: "https://example.com/start".to_string(),
+            format: "bestvideo".to_string(),
+        },
+        DownloadEvent::Progress {
+            percent: 33.3,
+            speed: Some("5MB/s".to_string()),
+            eta: Some("00:15".to_string()),
+        },
+        DownloadEvent::Retry {
+            attempt: 1,
+            max_retries: 2,
+            reason: "timeout".to_string(),
+        },
+        DownloadEvent::Fallback {
+            from_quality: "2160p".to_string(),
+            to_quality: "1440p".to_string(),
+        },
+        DownloadEvent::Completed {
+            url: "https://example.com/complete".to_string(),
+            output_path: "/path/video.mp4".to_string(),
+        },
+        DownloadEvent::Failed {
+            url: "https://example.com/failed".to_string(),
+            error: "network unavailable".to_string(),
+        },
+    ];
+
+    for ev in &events {
+        // Calling on_event must dispatch cleanly to tracing without panics
+        listener.on_event(ev);
+    }
+}
+
+#[test]
+fn test_init_logging_helper() {
+    // Calling init_logging with various parameter flags must not panic
+    init_logging(false, false, false);
+    init_logging(true, false, false);
+    init_logging(false, true, false);
+    init_logging(false, false, true);
+}
+
+#[test]
+fn test_cli_logging_and_json_flags() {
+    use clap::Parser;
+    use dlp::cli::Cli;
+
+    // Test --verbose / -v flag
+    let cli_v = Cli::try_parse_from(["dlp", "-v", "https://example.com"]).unwrap();
+    assert!(cli_v.verbose);
+    assert!(!cli_v.quiet);
+    assert!(!cli_v.json);
+
+    // Test --quiet / -q flag
+    let cli_q = Cli::try_parse_from(["dlp", "-q", "https://example.com"]).unwrap();
+    assert!(!cli_q.verbose);
+    assert!(cli_q.quiet);
+    assert!(!cli_q.json);
+
+    // Test --json flag
+    let cli_json = Cli::try_parse_from(["dlp", "--json", "https://example.com"]).unwrap();
+    assert!(!cli_json.verbose);
+    assert!(!cli_json.quiet);
+    assert!(cli_json.json);
+
+    // Test -Q for quality
+    let cli_qual = Cli::try_parse_from(["dlp", "-Q", "1080", "https://example.com"]).unwrap();
+    assert_eq!(cli_qual.quality.as_deref(), Some("1080"));
+
+    // Test subcommand with flags
+    let cli_sub = Cli::try_parse_from(["dlp", "video", "https://example.com", "-v", "-q", "--json"]).unwrap();
+    assert!(cli_sub.verbose);
+    assert!(cli_sub.quiet);
+    assert!(cli_sub.json);
+}
+
 

@@ -55,6 +55,17 @@ impl Downloader {
             .download(url, preset, effective_quality, override_output_dir)
     }
 
+    /// Execute the download process with an optional event dispatcher.
+    pub fn download_with_dispatcher(
+        url: &str,
+        preset: &Preset,
+        effective_quality: &QualityPreference,
+        override_output_dir: Option<&str>,
+        dispatcher: Option<&crate::event::EventDispatcher>,
+    ) -> Result<()> {
+        YtDlpEngine::download_with_dispatcher(url, preset, effective_quality, override_output_dir, dispatcher)
+    }
+
     /// Backward-compatibility forwarding: Fetch metadata directly via yt-dlp engine.
     pub fn fetch_metadata_ytdlp(url: &str, impersonate_client: Option<&str>) -> Result<VideoMetadata> {
         YtDlpEngine::fetch_metadata(url, impersonate_client)
