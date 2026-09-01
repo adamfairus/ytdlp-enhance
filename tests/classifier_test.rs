@@ -22,8 +22,13 @@ fn test_classify_youtube_music() {
     };
 
     let classified = SmartClassifier::classify("https://music.youtube.com/watch?v=abc", &meta);
-    assert_eq!(classified, MediaType::Music);
+    assert_eq!(classified.media_type, MediaType::Music);
+    assert!(classified.confidence >= 0.70);
     assert_eq!(classified.default_preset_name(), "music");
+    assert_eq!(classified.display_label(), "🎵 Music / Audio");
+    assert!(classified.reasons.contains(&"music platform URL".to_string()));
+    assert!(classified.reasons.contains(&"category tagged as Music".to_string()));
+    assert!(classified.reasons.contains(&"standard track duration (< 10 min)".to_string()));
 }
 
 #[test]
@@ -47,8 +52,12 @@ fn test_classify_tiktok_url() {
     };
 
     let classified = SmartClassifier::classify("https://www.tiktok.com/@creator/video/123", &meta);
-    assert_eq!(classified, MediaType::VerticalVideo);
+    assert_eq!(classified.media_type, MediaType::VerticalVideo);
+    assert!(classified.confidence >= 0.70);
     assert_eq!(classified.default_preset_name(), "tiktok");
+    assert_eq!(classified.display_label(), "📱 Vertical Short-Form Video");
+    assert!(classified.reasons.contains(&"short-form / vertical video URL".to_string()));
+    assert!(classified.reasons.contains(&"vertical aspect ratio (e.g. 9:16)".to_string()));
 }
 
 #[test]
@@ -72,7 +81,12 @@ fn test_classify_vertical_shorts() {
     };
 
     let classified = SmartClassifier::classify("https://www.youtube.com/shorts/short123", &meta);
-    assert_eq!(classified, MediaType::VerticalVideo);
+    assert_eq!(classified.media_type, MediaType::VerticalVideo);
+    assert!(classified.confidence >= 0.70);
+    assert_eq!(classified.default_preset_name(), "tiktok");
+    assert_eq!(classified.display_label(), "📱 Vertical Short-Form Video");
+    assert!(classified.reasons.contains(&"short-form / vertical video URL".to_string()));
+    assert!(classified.reasons.contains(&"vertical aspect ratio (e.g. 9:16)".to_string()));
 }
 
 #[test]
@@ -96,6 +110,10 @@ fn test_classify_standard_video() {
     };
 
     let classified = SmartClassifier::classify("https://www.youtube.com/watch?v=vid123", &meta);
-    assert_eq!(classified, MediaType::StandardVideo);
+    assert_eq!(classified.media_type, MediaType::StandardVideo);
+    assert!(classified.confidence >= 0.60);
     assert_eq!(classified.default_preset_name(), "video");
+    assert_eq!(classified.display_label(), "🎬 Standard Horizontal Video");
+    assert!(classified.reasons.contains(&"horizontal aspect ratio (e.g. 16:9)".to_string()));
 }
+

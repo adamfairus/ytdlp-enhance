@@ -185,6 +185,8 @@ pub struct DecisionTrace {
     pub orientation: String,
     pub resolution: String,
     pub duration: String,
+    pub confidence: f32,
+    pub reasons: Vec<String>,
     pub policy_name: String,
     pub policy_rules: Vec<String>,
     pub selected_format_desc: Vec<String>,
@@ -255,12 +257,16 @@ impl DecisionTrace {
             .or(preset.output_dir.as_deref())
             .map(|s| s.to_string());
 
+        let classification = crate::classifier::SmartClassifier::classify(url, meta);
+
         Self {
             platform: norm.platform,
             content_type: norm.content_type,
             orientation: norm.orientation.display_name().to_string(),
             resolution,
             duration: norm.duration_formatted,
+            confidence: classification.confidence,
+            reasons: classification.reasons,
             policy_name: preset.name.clone(),
             policy_rules,
             selected_format_desc,
@@ -276,6 +282,10 @@ impl DecisionTrace {
         println!("╠══════════════════════════════════════════════════╣");
         println!("║ Platform       : {:<32}║", self.platform);
         println!("║ Content        : {:<32}║", self.content_type);
+        println!("║ Confidence     : {:<32}║", format!("{:.0}%", self.confidence * 100.0));
+        for reason in &self.reasons {
+            println!("║   ✓ {:<43}║", truncate_str(reason, 43));
+        }
         println!("║ Orientation    : {:<32}║", self.orientation);
         println!("║ Resolution     : {:<32}║", self.resolution);
         println!("║ Duration       : {:<32}║", self.duration);

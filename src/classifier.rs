@@ -27,21 +27,47 @@ impl MediaType {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Classification {
+    pub media_type: MediaType,
+    pub confidence: f32, // 0.0 to 1.0
+    pub reasons: Vec<String>,
+}
+
+impl Classification {
+    pub fn default_preset_name(&self) -> &'static str {
+        self.media_type.default_preset_name()
+    }
+
+    pub fn display_label(&self) -> &'static str {
+        self.media_type.display_label()
+    }
+}
+
 pub struct SmartClassifier;
 
 impl SmartClassifier {
     /// Automatically detects whether a given media URL and metadata represents Music, Vertical Video, or Standard Video
-    pub fn classify(url: &str, meta: &VideoMetadata) -> MediaType {
+    pub fn classify(url: &str, meta: &VideoMetadata) -> Classification {
         let u = url.to_lowercase();
 
-        // 1. Explicit domain / URL pattern checks
+        let mut music_score: f32 = 0.0;
+        let mut vertical_score: f32 = 0.0;
+        let mut standard_score: f32 = 0.0;
+
+        let mut music_reasons: Vec<String> = Vec::new();
+        let mut vertical_reasons: Vec<String> = Vec::new();
+        let mut standard_reasons: Vec<String> = Vec::new();
+
+        // 1. Domain / URL patterns
         if u.contains("music.youtube.com")
             || u.contains("soundcloud.com")
             || u.contains("spotify.com")
-            || u.contains("deezer.com")
             || u.contains("bandcamp.com")
+            || u.contains("deezer.com")
         {
-            return MediaType::Music;
+            music_score += 0.50;
+            music_reasons.push("music platform URL".to_string());
         }
 
         if TikTokFallback::is_tiktok_url(url)
@@ -50,29 +76,65 @@ impl SmartClassifier {
             || u.contains("/reels/")
             || u.contains("instagram.com/p/")
         {
-            return MediaType::VerticalVideo;
+            vertical_score += 0.55;
+            vertical_reasons.push("short-form / vertical video URL".to_string());
         }
 
-        // 2. Orientation & Metadata checks
-        if meta.orientation() == Orientation::Vertical {
-            return MediaType::VerticalVideo;
+        // 2. Orientation
+        match meta.orientation() {
+            Orientation::Vertical => {
+                vertical_score += 0.40;
+                vertical_reasons.push("vertical aspect ratio (e.g. 9:16)".to_string());
+            }
+            Orientation::Horizontal => {
+                standard_score += 0.30;
+                standard_reasons.push("horizontal aspect ratio (e.g. 16:9)".to_string());
+            }
+            Orientation::Square => {}
         }
 
+        // 3. Audio & Category
         if meta.is_audio_only() {
-            return MediaType::Music;
+            music_score += 0.35;
+            music_reasons.push("audio-only stream detected".to_string());
         }
 
-        if let Some(cats) = &meta.categories {
-            if cats.iter().any(|c| c.eq_ignore_ascii_case("Music")) {
-                if let Some(d) = meta.duration {
-                    // Audio tracks / songs under 10 minutes from music categories
-                    if d < 600.0 && meta.is_audio_only() {
-                        return MediaType::Music;
-                    }
-                }
+        let has_music_category = meta
+            .categories
+            .as_ref()
+            .map_or(false, |cats| cats.iter().any(|c| c.to_lowercase().contains("music")));
+
+        if has_music_category {
+            music_score += 0.20;
+            music_reasons.push("category tagged as Music".to_string());
+        }
+
+        if let Some(d) = meta.duration {
+            if d < 600.0 && (has_music_category || meta.is_audio_only()) {
+                music_score += 0.10;
+                music_reasons.push("standard track duration (< 10 min)".to_string());
             }
         }
 
-        MediaType::StandardVideo
+        // Pick highest scoring MediaType
+        let (media_type, raw_score, mut reasons) = if music_score > vertical_score && music_score > standard_score {
+            (MediaType::Music, music_score, music_reasons)
+        } else if vertical_score > music_score && vertical_score > standard_score {
+            (MediaType::VerticalVideo, vertical_score, vertical_reasons)
+        } else {
+            (MediaType::StandardVideo, standard_score, standard_reasons)
+        };
+
+        if reasons.is_empty() {
+            reasons.push("default standard video fallback".to_string());
+        }
+
+        let confidence = raw_score.clamp(0.60, 0.99);
+
+        Classification {
+            media_type,
+            confidence,
+            reasons,
+        }
     }
 }
