@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 use crate::classifier::SmartClassifier;
 use crate::downloader::Downloader;
@@ -14,6 +14,7 @@ use crate::lyrics::LyricsFetcher;
 use crate::preset::{Preset, PresetManager};
 #[allow(unused_imports)]
 use crate::scheduler::{PlatformCategory, ScheduledPlan, TaskPriority, TaskScheduler, TaskState};
+use crate::throttle::PlatformRateLimiter;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ItemStatus {
@@ -373,8 +374,8 @@ pub fn run_batch_parallel_with_dispatcher(
     let output_dir = output_dir.map(|s| s.to_string());
     let preset_mgr = Arc::new(preset_manager.clone());
 
-    // Rate-limit throttle tracker for TikTok (minimum 1.1s spacing)
-    let last_tiktok_time = Arc::new(Mutex::new(Instant::now() - Duration::from_secs(5)));
+    // Platform-aware rate limiter & concurrency throttling
+    let rate_limiter = Arc::new(PlatformRateLimiter::new());
 
     let mut handles = Vec::new();
 
@@ -387,7 +388,7 @@ pub fn run_batch_parallel_with_dispatcher(
         let exp_p = explicit_preset.clone();
         let q_ov = quality_override.clone();
         let out_d = output_dir.clone();
-        let tiktok_throttle = Arc::clone(&last_tiktok_time);
+        let rate_limiter = Arc::clone(&rate_limiter);
         let disp = dispatcher.clone();
 
         let handle = thread::spawn(move || {
@@ -435,16 +436,8 @@ pub fn run_batch_parallel_with_dispatcher(
 
                 println!("[Worker {}] 📦 [{}/{}] Processing: {}", worker_id + 1, item_num, total, url);
 
-                // 2. Throttle TikTok requests if needed to prevent 429
-                if url.to_lowercase().contains("tiktok.com") {
-                    let mut last_t = tiktok_throttle.lock().unwrap();
-                    let elapsed = last_t.elapsed();
-                    if elapsed < Duration::from_millis(1100) {
-                        let sleep_duration = Duration::from_millis(1100) - elapsed;
-                        thread::sleep(sleep_duration);
-                    }
-                    *last_t = Instant::now();
-                }
+                // 2. Throttle & rate-limit request based on platform category
+                rate_limiter.acquire_permit(task.platform);
 
                 // 3. Process single item
                 let res = process_single_item(

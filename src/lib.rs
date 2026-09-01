@@ -20,6 +20,7 @@ pub mod provider;
 pub mod quality;
 pub mod recovery;
 pub mod scheduler;
+pub mod throttle;
 pub mod tiktok;
 
 use std::path::Path;
