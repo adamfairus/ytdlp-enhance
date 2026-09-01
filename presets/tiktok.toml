@@ -1,0 +1,12 @@
+# TikTok / Vertical Shorts Preset (v0.6 Specialization)
+name = "tiktok"
+description = "Optimized preset for TikTok, YouTube Shorts, and Instagram Reels (Vertical MP4, no watermark, creator folder organization)"
+
+container = "mp4"
+quality = "best"
+max_vertical = 1440 # Max 1440p portrait to prevent bloated upscales
+embed_metadata = true
+embed_thumbnail = true
+extract_audio = false
+clean_metadata = false # Preserve original hashtags and descriptions for short-form clips
+output_template = "%(uploader,creator)s/%(upload_date>%Y-%m-%d)s_%(id)s_%(title).60s.%(ext)s"

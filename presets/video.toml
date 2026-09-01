@@ -1,0 +1,13 @@
+# Default General Video Preset
+name = "video"
+description = "General high-quality video download (MP4 container with embedded metadata & thumbnail, clean title)"
+
+container = "mp4"
+quality = "best"
+max_horizontal = 2160 # Max 4K for landscape
+max_vertical = 1440   # Max 1440p for portrait
+embed_metadata = true
+embed_thumbnail = true
+extract_audio = false
+clean_metadata = true
+output_template = "%(title)s.%(ext)s"
