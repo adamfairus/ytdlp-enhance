@@ -60,6 +60,11 @@ impl MetadataNormalizer {
             "[m/v]",
             "- official video",
             "- official audio",
+            "(remastered)",
+            "[remastered]",
+            "(4k remaster)",
+            "[4k remaster]",
+            "- remastered",
         ];
 
         let mut changed = true;

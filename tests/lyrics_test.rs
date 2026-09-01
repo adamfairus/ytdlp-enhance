@@ -14,6 +14,14 @@ fn test_clean_title_for_lyrics_search() {
         LyricsFetcher::clean_title("Song Title (MV)"),
         "Song Title"
     );
+    assert_eq!(
+        LyricsFetcher::clean_title("01 - Accendio (Official MV)"),
+        "Accendio"
+    );
+    assert_eq!(
+        LyricsFetcher::clean_title("02. HEYA [Remastered]"),
+        "HEYA"
+    );
 }
 
 #[test]

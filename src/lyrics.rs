@@ -19,30 +19,67 @@ pub struct LrcResponse {
 pub struct LyricsFetcher;
 
 impl LyricsFetcher {
-    /// Clean title from common noisy MV tags for high match rate
+    /// Clean title from common noisy MV tags and track numbers for high match rate
     pub fn clean_title(title: &str) -> String {
-        let mut cleaned = title.to_string();
+        let mut cleaned = title.trim().to_string();
+
+        // 1. Strip leading track number prefix e.g. "01 - ", "01. ", "1 - "
+        if let Some(pos) = cleaned.find(" - ") {
+            let prefix = &cleaned[..pos];
+            if !prefix.is_empty() && prefix.chars().all(|c| c.is_ascii_digit()) {
+                cleaned = cleaned[pos + 3..].trim().to_string();
+            }
+        } else if let Some(pos) = cleaned.find(". ") {
+            let prefix = &cleaned[..pos];
+            if !prefix.is_empty() && prefix.chars().all(|c| c.is_ascii_digit()) {
+                cleaned = cleaned[pos + 2..].trim().to_string();
+            }
+        }
 
         let unwanted = [
             "[Official Music Video]",
             "(Official Music Video)",
             "[Official Video]",
             "(Official Video)",
+            "[Official MV]",
+            "(Official MV)",
             "[Official Audio]",
             "(Official Audio)",
+            "[Performance Video]",
+            "(Performance Video)",
+            "[Visualizer]",
+            "(Visualizer)",
+            "[Lyric Video]",
+            "(Lyric Video)",
+            "[Lyrics Video]",
+            "(Lyrics Video)",
             "[MV]",
             "(MV)",
+            "[M/V]",
+            "(M/V)",
             "[Audio]",
             "(Audio)",
-            "(Color Coded Lyrics)",
             "[Color Coded Lyrics]",
+            "(Color Coded Lyrics)",
+            "[Remastered]",
+            "(Remastered)",
+            "[4K Remaster]",
+            "(4K Remaster)",
         ];
 
         for u in unwanted {
-            cleaned = cleaned.replace(u, "");
+            let lower_u = u.to_lowercase();
+            while let Some(pos) = cleaned.to_lowercase().find(&lower_u) {
+                cleaned.replace_range(pos..pos + u.len(), "");
+            }
         }
 
-        cleaned.trim().to_string()
+        cleaned = cleaned.trim().trim_end_matches(['-', '_', '|', ':']).trim().to_string();
+        while cleaned.contains("  ") {
+            cleaned = cleaned.replace("  ", " ");
+        }
+
+        cleaned
     }
 
     /// Clean artist from ' - Topic' suffix and take main artist before comma

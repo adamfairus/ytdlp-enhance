@@ -28,6 +28,14 @@ fn test_clean_title_patterns() {
         MetadataNormalizer::clean_title("Track Name (Color Coded Lyrics)"),
         "Track Name"
     );
+    assert_eq!(
+        MetadataNormalizer::clean_title("Queen - Bohemian Rhapsody [Remastered]"),
+        "Queen - Bohemian Rhapsody"
+    );
+    assert_eq!(
+        MetadataNormalizer::clean_title("Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)"),
+        "Rick Astley - Never Gonna Give You Up"
+    );
 }
 
 #[test]

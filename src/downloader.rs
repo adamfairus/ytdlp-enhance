@@ -295,7 +295,7 @@ impl Downloader {
 
             cmd.arg("--replace-in-metadata")
                 .arg("title")
-                .arg("(?i)\\s*[\\(\\[](?:official\\s*(?:video|audio|music\\s*video|lyric\\s*video|visualizer|mv)?|mv|performance\\s*video|audio|lyrics?|color\\s*coded\\s*lyrics?)[\\)\\]]")
+                .arg("(?i)\\s*[\\(\\[](?:official\\s*(?:video|audio|music\\s*video|lyric\\s*video|visualizer|mv)?|mv|performance\\s*video|audio|lyrics?|color\\s*coded\\s*lyrics?|remastered(?:\\s*\\d+)?|\\d+k\\s*remaster)[\\)\\]]")
                 .arg("");
         }
 
@@ -329,6 +329,12 @@ impl Downloader {
                 .arg("%(main_artist,artist,uploader)s:%(meta_artist)s");
             cmd.arg("--parse-metadata")
                 .arg("%(main_artist,artist,uploader)s:%(meta_album_artist)s");
+            cmd.arg("--parse-metadata")
+                .arg("%(album,playlist_title)s:%(meta_album)s");
+            cmd.arg("--parse-metadata")
+                .arg("%(genre)s:%(meta_genre)s");
+            cmd.arg("--parse-metadata")
+                .arg("%(disc_number)s:%(meta_disc)s");
             cmd.arg("--parse-metadata")
                 .arg("%(release_date>%Y-%m-%d,upload_date>%Y-%m-%d,timestamp>%Y-%m-%d)s:%(meta_date)s");
             cmd.arg("--parse-metadata")

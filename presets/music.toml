@@ -1,6 +1,6 @@
-# Music / Audio Extraction Preset (v0.5 Specialization)
+# Music / Audio Extraction Preset (v1.4 Music Pipeline 2.0)
 name = "music"
-description = "Extract highest quality native audio (Opus) with 1:1 square cropped album art, clean tags, and standalone LRC lyrics"
+description = "Extract highest quality native audio (Opus) with 1:1 square cropped album art, complete metadata tags, and standalone LRC lyrics"
 
 container = "opus"
 quality = "best"
@@ -15,4 +15,4 @@ embed_lyrics = false # Never embed lyrics; generate standalone .lrc file
 lyrics_format = "lrc"
 clean_metadata = true
 parse_music_tags = true
-output_template = "%(main_artist,artist,uploader)s/%(album,playlist_title&{}|Single)s/%(title)s.%(ext)s"
+output_template = "%(main_artist,artist,uploader)s/%(album,playlist_title&{}|Single)s/%(track_number>%02d - ,playlist_index>%02d - )s%(title)s.%(ext)s"
