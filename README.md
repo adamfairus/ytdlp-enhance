@@ -13,14 +13,26 @@ curl -fsSL https://raw.githubusercontent.com/adamfairus/ytdlp-enhance/main/insta
 
 ---
 
-## ✨ Fitur Utama (v2.0.0 Milestone Release)
+## ✨ Fitur Utama (v2.1.0 Architecture Hardening Release)
 
+- **🎯 Confidence-Based Smart Classification (v2.1)**:
+  - Evaluasi multi-sinyal berbasis probabilitas/confidence (URL domain, orientasi video, ketersediaan audio stream, kategori, dan durasi).
+  - Transparansi skor confidence (e.g. 80%, 95%) dan daftar sinyal keputusan pada output `dlp --explain`.
+- **🧩 Decoupled Engine Layer & Clean Facade (v2.1)**:
+  - Ekstraksi `YtDlpEngine` (`src/engine.rs`) untuk memutus *god object* dan ketergantungan sirkular antara Downloader dan Provider.
+  - `Downloader` dirampingkan menjadi fasad bersih (57 baris) yang mendelegasikan perintah ke `ProviderRegistry` dan `YtDlpEngine`.
+- **📡 Decoupled Event System (v2.1)**:
+  - Arsitektur event-driven melalui `DownloadEvent` enum dan `EventDispatcher` thread-safe (`EventListener`).
+- **🛡️ Structured Recovery Policy (v2.1)**:
+  - Pemisahan deteksi kegagalan (*Failure Detection*) dari keputusan pemulihan (*Recovery Decision*) melalui `FailureContext`, `RecoveryPolicy`, dan `RecoveryAction`.
+- **⚡ True Queue TaskScheduler (v2.1)**:
+  - Penjadwalan antrean dengan *Priority Queuing* (`Urgent`, `High`, `Normal`, `Low`), *Task State Machine* (`Pending` $\rightarrow$ `Running` $\rightarrow$ `Retrying` $\rightarrow$ `Completed` / `Failed`), dan penegakan batas konkurensi per-platform.
 - **📦 Cross-Platform Distribution & Single Binary (v2.0)**:
   - Distribusi binary mandiri ultra-ringkas (3.4 MB stripped / 1.7 MB compressed) dengan kompilasi LTO fat dan optimasi level 3.
   - Script instalasi otomatis satu-baris `install.sh` yang mendeteksi OS/arsitektur, mengonfigurasi `$PATH`, dan memverifikasi dependensi.
   - Skema migrasi konfigurasi otomatis `dlp config migrate` antar versi mayor.
-- **🧪 Comprehensive Verification Matrix & Regression Protection (v1.7)**:
-  - 17 test suites dengan **54 unit, integration, snapshot, dan regression tests** (100% Green).
+- **🧪 Comprehensive Verification Matrix & Regression Protection**:
+  - 18 test suites dengan **73 unit, integration, snapshot, dan regression tests** (100% Green).
   - Golden regression tests untuk URL edge cases (YouTube Shorts, Live, Music, embed, TikTok desktop & shortlink, URL queries).
   - Terminal snapshot testing untuk memastikan stabilitas visual Decision Trace, Diagnostic Report, dan Batch Scheduler.
   - Property-based testing untuk penegakan batas resolusi, orientasi video, dan kebijakan preset.
@@ -118,4 +130,4 @@ Jalankan seluruh test suite dengan:
 ```bash
 cargo test
 ```
-Semua 54 pengujian unit, integrasi, snapshot, dan regression terverifikasi 100% *green*.
+Semua 73 pengujian unit, integrasi, snapshot, dan regression terverifikasi 100% *green*.
