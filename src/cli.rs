@@ -5,7 +5,7 @@ use clap_complete::Shell;
 #[command(
     name = "dlp",
     author = "Adam F",
-    version = "1.5.0",
+    version = "1.6.0",
     about = "Smart orchestration and CLI wrapper for yt-dlp and ffmpeg",
     long_about = "dlp is an intelligent CLI orchestration layer above yt-dlp and ffmpeg that inspects metadata, detects video orientation, and applies customizable presets and batch downloads."
 )]
@@ -64,6 +64,12 @@ pub enum Commands {
 
     /// Generate shell completion scripts (bash, zsh, fish, powershell, elvish)
     Completions(CompletionsArgs),
+
+    /// Inspect, initialize, and set user configuration options
+    Config(ConfigArgs),
+
+    /// Inspect raw extractor metadata JSON for developers
+    Debug(DebugArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -130,3 +136,41 @@ pub struct CompletionsArgs {
     #[arg(value_enum)]
     pub shell: Shell,
 }
+
+#[derive(Args, Debug, Clone)]
+pub struct ConfigArgs {
+    #[command(subcommand)]
+    pub subcommand: Option<ConfigSubcommands>,
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum ConfigSubcommands {
+    /// Show current loaded configuration values
+    Show,
+
+    /// Print the absolute path to the configuration file
+    Path,
+
+    /// Initialize default configuration file if missing
+    Init,
+
+    /// Set a configuration option (e.g. 'concurrency 4' or 'default_preset music')
+    Set {
+        /// Configuration key (e.g. default_preset, download_dir, concurrency, retry_delay_sec, rate_limit)
+        key: String,
+        /// Value to assign
+        value: String,
+    },
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct DebugArgs {
+    /// URL of the media to inspect
+    #[arg(value_name = "URL")]
+    pub url: String,
+
+    /// Output pure unformatted JSON (ideal for piping into jq)
+    #[arg(long = "raw")]
+    pub raw: bool,
+}
+

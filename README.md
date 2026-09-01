@@ -4,8 +4,12 @@
 
 ---
 
-## ✨ Fitur Utama (v1.5.0 Stable Release)
+## ✨ Fitur Utama (v1.6.0 Stable Release)
 
+- **🛠️ Developer Experience (DX) & Configuration Management (v1.6)**:
+  - Subcommand `dlp config [show | path | init | set <KEY> <VALUE>]` untuk inspeksi dan modifikasi konfigurasi global `~/.config/dlp/config.toml` tanpa perlu membuka teks editor manual.
+  - Subcommand `dlp debug <URL> [--raw]` untuk membedah data mentah metadata JSON dari extractor (sangat cocok untuk debugging atau di-*pipe* ke `jq`).
+  - Diagnostik `dlp doctor` yang diperluas: deteksi akselerator multi-koneksi `aria2c`, verifikasi Provider Registry, dan uji izin tulis direktori unduhan.
 - **🧩 Plugin / Provider Architecture (v1.5)**: Dekopling logika platform berbasis Rust Trait (`pub trait Provider` & `ProviderRegistry`) untuk routing otomatis platform (TikTok, YouTube, Generic) yang modular dan mudah diekstensikan.
 - **🎵 Music Pipeline 2.0 (v1.4)**: Pengorganisasian folder album otomatis (`Artist/Album/01 - Track Title.opus`), pemetaan tag metadata audio lengkap (`Artist`, `Album Artist`, `Track`, `Track Number`, `Disc Number`, `Album`, `Genre`, `Release Date`), serta pencarian lirik LRCLIB pintar yang kebal dari prefix nomor trek dan embel-embel remaster.
 - **🔍 Decision Trace & UX Transparency (v1.3)**: Flag diagnostik `--explain` untuk membedah transparansi rantai keputusan cerdas `dlp` (platform, orientasi, policy engine, format selector, dan tahapan pipeline postprocessing) tanpa mengunduh.
@@ -96,4 +100,4 @@ Jalankan seluruh test suite dengan:
 ```bash
 cargo test
 ```
-Semua 45 pengujian unit dan integrasi terverifikasi 100% *green*.
+Semua 46 pengujian unit dan integrasi terverifikasi 100% *green*.

@@ -31,3 +31,30 @@ fn test_parse_config_with_download_policy() {
     assert_eq!(parsed.download.retry_delay_sec, 5);
     assert_eq!(parsed.download.rate_limit, Some("10M".to_string()));
 }
+
+#[test]
+fn test_config_mutation_and_validation() {
+    let mut config = Config::default();
+
+    config.set_value("default_preset", "music").unwrap();
+    assert_eq!(config.default_preset, "music");
+
+    config.set_value("download_dir", "/custom/path").unwrap();
+    assert_eq!(config.download_dir, Some("/custom/path".to_string()));
+
+    config.set_value("download_dir", "none").unwrap();
+    assert_eq!(config.download_dir, None);
+
+    config.set_value("concurrency", "4").unwrap();
+    assert_eq!(config.download.concurrency, 4);
+
+    config.set_value("retry_delay_sec", "10").unwrap();
+    assert_eq!(config.download.retry_delay_sec, 10);
+
+    config.set_value("rate_limit", "50M").unwrap();
+    assert_eq!(config.download.rate_limit, Some("50M".to_string()));
+
+    assert!(config.set_value("concurrency", "not_a_number").is_err());
+    assert!(config.set_value("nonexistent_key", "value").is_err());
+}
+

@@ -72,7 +72,77 @@ pub fn run() -> Result<()> {
         return Ok(());
     }
 
-    // 5. Handle 'dlp batch' command
+    // 5. Handle 'dlp config' command
+    if let Some(Commands::Config(c)) = &args.command {
+        match &c.subcommand {
+            None | Some(cli::ConfigSubcommands::Show) => {
+                let path_str = config::Config::config_path()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| "Unknown".to_string());
+                println!("\n⚙️  dlp Configuration ({})", path_str);
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                let toml_str = toml::to_string_pretty(&app_config)
+                    .unwrap_or_else(|_| "Error formatting config".to_string());
+                println!("{}", toml_str.trim());
+                println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+            }
+            Some(cli::ConfigSubcommands::Path) => {
+                if let Some(p) = config::Config::config_path() {
+                    println!("{}", p.display());
+                } else {
+                    println!("Unknown config path");
+                }
+            }
+            Some(cli::ConfigSubcommands::Init) => {
+                let default_cfg = config::Config::default();
+                let saved_path = default_cfg.save()?;
+                println!("✅ Initialized default configuration at {}", saved_path.display());
+            }
+            Some(cli::ConfigSubcommands::Set { key, value }) => {
+                let mut cfg = config::Config::load();
+                cfg.set_value(key, value)?;
+                let saved_path = cfg.save()?;
+                println!("✅ Updated '{}' = '{}' in {}", key, value, saved_path.display());
+            }
+        }
+        return Ok(());
+    }
+
+    // 6. Handle 'dlp debug' command
+    if let Some(Commands::Debug(d)) = &args.command {
+        println!("🔍 Fetching raw extractor metadata for '{}'...", d.url);
+        let mut cmd = std::process::Command::new("yt-dlp");
+        cmd.arg("--dump-single-json").arg("--no-playlist");
+        if crate::tiktok::TikTokFallback::is_tiktok_url(&d.url) {
+            cmd.arg("--impersonate").arg("chrome");
+        }
+        cmd.arg(&d.url);
+
+        let output = cmd.output()?;
+        if output.status.success() {
+            let json_str = String::from_utf8_lossy(&output.stdout);
+            if d.raw {
+                println!("{}", json_str.trim());
+            } else {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                    let pretty = serde_json::to_string_pretty(&parsed).unwrap_or_else(|_| json_str.to_string());
+                    println!("{}", pretty);
+                } else {
+                    println!("{}", json_str.trim());
+                }
+            }
+            return Ok(());
+        } else {
+            let err = String::from_utf8_lossy(&output.stderr);
+            eprintln!("❌ Raw extractor error:\n{}", err);
+            return Err(error::DlpError::YtDlpFailed {
+                code: output.status.code().unwrap_or(-1),
+                stderr: err.to_string(),
+            });
+        }
+    }
+
+    // 7. Handle 'dlp batch' command
     if let Some(Commands::Batch(b)) = &args.command {
         let urls = batch::resolve_inputs_to_urls(&b.inputs)?;
         if urls.is_empty() {
@@ -148,7 +218,12 @@ pub fn run() -> Result<()> {
                 args.output_dir.as_deref(),
             )
         }
-        Some(Commands::Presets) | Some(Commands::Doctor) | Some(Commands::Completions(_)) | Some(Commands::Batch(_)) => unreachable!(),
+        Some(Commands::Presets)
+        | Some(Commands::Doctor)
+        | Some(Commands::Completions(_))
+        | Some(Commands::Batch(_))
+        | Some(Commands::Config(_))
+        | Some(Commands::Debug(_)) => unreachable!(),
     };
 
     // 7. Dependency check
