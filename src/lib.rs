@@ -13,6 +13,7 @@ pub mod orientation;
 pub mod preset;
 pub mod progress;
 pub mod quality;
+pub mod recovery;
 pub mod tiktok;
 
 use std::path::Path;
@@ -83,6 +84,8 @@ pub fn run() -> Result<()> {
         };
 
         let effective_output_dir = b.output_dir.as_deref().or(app_config.download_dir.as_deref());
+        let cp_path = batch::determine_checkpoint_path(&b.inputs, effective_output_dir);
+
         batch::run_batch(
             &urls,
             &preset_manager,
@@ -90,6 +93,8 @@ pub fn run() -> Result<()> {
             b.quality.as_deref(),
             b.lyrics,
             effective_output_dir,
+            b.resume,
+            Some(&cp_path),
         )?;
         return Ok(());
     }

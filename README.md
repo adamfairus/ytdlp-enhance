@@ -4,27 +4,27 @@
 
 ---
 
-## ✨ Fitur Utama (v1.0.0 Stable Release)
+## ✨ Fitur Utama (v1.1.0 Stable Release)
 
 - **⚡ Fast Native Binary**: Dibangun dengan Rust murni untuk performa tinggi, efisiensi memori, dan nol ketergantungan script runtime Python.
+- **🛡️ Smart Self-Healing Error Recovery (v1.1)**: Deteksi cerdas kegagalan download (`Transient`, `FormatUnavailable`, `BotBlockOrExtractor`, `FFmpegProcessing`, `Permanent`):
+  - Auto-retry dengan *exponential backoff* pada gangguan jaringan sementara.
+  - *Format Stepping Fallback*: Otomatis menurunkan resolusi (4K → 1440p → 1080p → 720p → Best) jika format requested tidak tersedia.
+  - Rotasi TLS browser impersonation otomatis (`safari-18`, `chrome-136`, `firefox-135`) saat terdeteksi proteksi anti-bot.
+  - Diagnosis error informatif dan terstruktur di terminal.
+- **💾 Batch Checkpoint & Resume (v1.1)**: State persistence persisten (`.dlp_checkpoint.json`) dengan flag `--resume` untuk melewati URL yang telah sukses dan hanya memproses item tertunda/gagal.
 - **🩺 System Health Doctor (v1.0)**: Subcommand `dlp doctor` untuk memverifikasi ketersediaan `yt-dlp`, `ffmpeg`, `ffprobe`, konfigurasi, dan konektivitas API LRCLIB & TikWM.
 - **🐚 Shell Auto-Completions (v1.0)**: Subcommand `dlp completions <SHELL>` untuk menghasilkan skrip *autocompletion* native untuk **Bash**, **Zsh**, **Fish**, **PowerShell**, dan **Elvish**.
 - **🤖 Smart Media Classification (v0.7)**: Otomatis mendeteksi tipe konten (*Music*, *Shorts/TikTok Vertical*, atau *Standard Video*) dari URL dan orientasi metadata tanpa perlu memasukkan flag manual. Cukup jalankan `dlp <URL>`.
 - **📱 TikTok / Shorts Specialization (v0.6)**: Optimasi khusus untuk video vertikal (TikTok, YouTube Shorts, Instagram Reels):
   - **TikWM Native Engine (Primary)**: Pengunduhan berkecepatan tinggi murni tanpa watermark.
-  - **10-Client Impersonation Rotation (Secondary Fallback)**: Proteksi anti-bot rotasi TLS fingerprint browser (`safari-18.0`, `chrome-136`, `edge-101`, `firefox-135`, dll.).
+  - **10-Client Impersonation Rotation (Secondary Fallback)**: Proteksi anti-bot rotasi TLS fingerprint browser.
   - Pengelompokan folder otomatis berdasarkan Creator/Uploader (`Creator/YYYY-MM-DD_ID_Title.mp4`).
   - Penegakan resolusi vertikal optimal (`max_vertical = 1440p`).
-- **🎵 Music Specialization (v0.5)**: Ekstraksi audio Opus native kualitas studio lengkap dengan:
-  - **1:1 Square Cropped Cover Art** (FFmpeg otomatis memotong thumbnail 16:9 menjadi cover kotak 1:1).
-  - **Native Synced Lyrics Fetcher (LRCLIB)**: Otomatis mencari dan menyimpan berkas `.lrc` mandiri langsung dari Rust tanpa Python eksternal.
-  - **Extended Metadata Tags** (Artist, Album, Title, Release Date).
-- **📦 Smart Batch Download (v0.4)**: Mengunduh puluhan/ratusan media sekaligus dari berkas teks (`urls.txt`) atau daftar link langsung dengan auto-klasifikasi per-item dan *Batch Summary Report*.
-- **🧙 Interactive Terminal Wizard (v0.3)**: Cukup ketik `dlp` untuk membuka wizard interaktif berbasis menu, prompt lirik, dynamic quality selector, dan navigasi *Back* yang intuitif.
-- **📐 Orientation Detection**: Otomatis mendeteksi rasio aspek:
-  - `Horizontal` (16:9 / 4:3)
-  - `Vertical` (9:16 Shorts / TikTok / Reels)
-  - `Square` (1:1)
+- **🎵 Music Specialization (v0.5)**: Ekstraksi audio Opus native kualitas studio lengkap dengan 1:1 Square Cropped Cover Art dan lirik sinkron LRCLIB (`.lrc`).
+- **📦 Smart Batch Download (v0.4)**: Mengunduh puluhan/ratusan media sekaligus dari berkas teks (`urls.txt`) atau daftar link langsung.
+- **🧙 Interactive Terminal Wizard (v0.3)**: Cukup ketik `dlp` untuk membuka wizard interaktif berbasis menu.
+- **📐 Orientation Detection**: Deteksi otomatis `Horizontal`, `Vertical`, atau `Square`.
 
 ---
 
@@ -48,10 +48,13 @@ dlp "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 dlp
 ```
 
-### 3. Smart Batch Download
+### 3. Smart Batch Download & Resume Checkpoint
 ```bash
 # Otomatis mengklasifikasikan dan mengunduh tiap URL di urls.txt:
 dlp batch urls.txt
+
+# Melanjutkan batch yang terputus (skip yang sukses, retry yang tertunda/gagal):
+dlp batch urls.txt --resume
 ```
 
 ### 4. Diagnostik Sistem (Doctor)
@@ -79,4 +82,4 @@ Jalankan seluruh test suite dengan:
 ```bash
 cargo test
 ```
-Semua 21 pengujian unit dan integrasi terverifikasi 100% *green*.
+Semua 29 pengujian unit dan integrasi terverifikasi 100% *green*.

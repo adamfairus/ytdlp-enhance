@@ -1,6 +1,10 @@
 use std::io::Write;
-use tempfile::NamedTempFile;
-use dlp::batch::{read_urls_from_file, resolve_inputs_to_urls, BatchReport};
+use std::path::Path;
+use tempfile::{tempdir, NamedTempFile};
+use dlp::batch::{
+    determine_checkpoint_path, read_urls_from_file, resolve_inputs_to_urls, BatchCheckpoint,
+    BatchReport, ItemStatus,
+};
 
 #[test]
 fn test_read_urls_from_file_with_comments_and_whitespace() {
@@ -41,12 +45,60 @@ fn test_resolve_inputs_combines_files_and_direct_urls() {
 #[test]
 fn test_batch_report_calculation() {
     let report = BatchReport {
-        total: 3,
+        total: 4,
         succeeded: 2,
+        skipped: 1,
         failed: vec![("https://example.com/bad".to_string(), "404 Not Found".to_string())],
     };
 
-    assert_eq!(report.total, 3);
+    assert_eq!(report.total, 4);
     assert_eq!(report.succeeded, 2);
+    assert_eq!(report.skipped, 1);
     assert_eq!(report.failed.len(), 1);
+}
+
+#[test]
+fn test_batch_checkpoint_save_and_load() {
+    let dir = tempdir().unwrap();
+    let cp_file = dir.path().join("test_batch.dlp_checkpoint.json");
+
+    let mut cp = BatchCheckpoint::new();
+    cp.mark_completed("https://youtube.com/watch?v=item1", "Item 1 Video");
+    cp.mark_failed("https://youtube.com/watch?v=item2", "Format 399 unavailable");
+
+    cp.save_to_path(&cp_file).unwrap();
+    assert!(cp_file.exists());
+
+    let loaded = BatchCheckpoint::load_from_path(&cp_file);
+    assert!(loaded.is_completed("https://youtube.com/watch?v=item1"));
+    assert!(!loaded.is_completed("https://youtube.com/watch?v=item2"));
+    assert!(!loaded.is_completed("https://youtube.com/watch?v=item3"));
+
+    match loaded.get_status("https://youtube.com/watch?v=item1") {
+        Some(ItemStatus::Completed { title, .. }) => {
+            assert_eq!(title, "Item 1 Video");
+        }
+        _ => panic!("Expected Completed status for item1"),
+    }
+
+    match loaded.get_status("https://youtube.com/watch?v=item2") {
+        Some(ItemStatus::Failed { error, .. }) => {
+            assert!(error.contains("Format 399 unavailable"));
+        }
+        _ => panic!("Expected Failed status for item2"),
+    }
+}
+
+#[test]
+fn test_determine_checkpoint_path() {
+    let file = NamedTempFile::new().unwrap();
+    let file_path = file.path().to_str().unwrap().to_string();
+
+    let inputs = vec![file_path.clone()];
+    let cp = determine_checkpoint_path(&inputs, None);
+    assert_eq!(cp, Path::new(&format!("{}.dlp_checkpoint.json", file_path)));
+
+    let direct_inputs = vec!["https://youtube.com/watch?v=direct".to_string()];
+    let cp2 = determine_checkpoint_path(&direct_inputs, Some("/tmp/custom_dl"));
+    assert_eq!(cp2, Path::new("/tmp/custom_dl/.dlp_checkpoint.json"));
 }

@@ -230,6 +230,8 @@ fn run_interactive_batch(preset_manager: &PresetManager, config: &Config) -> Res
             None,
             Some(preset.write_lyrics),
             config.download_dir.as_deref(),
+            false,
+            None,
         )?;
 
         let _ = Text::new("Press Enter to return to main menu...").prompt();

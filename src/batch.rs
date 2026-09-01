@@ -1,15 +1,106 @@
+use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+use serde::{Deserialize, Serialize};
 use crate::classifier::SmartClassifier;
 use crate::downloader::Downloader;
 use crate::error::{DlpError, Result};
 use crate::lyrics::LyricsFetcher;
 use crate::preset::{Preset, PresetManager};
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ItemStatus {
+    Completed { title: String, timestamp: String },
+    Failed { error: String, timestamp: String },
+    Pending,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BatchCheckpoint {
+    pub items: HashMap<String, ItemStatus>,
+}
+
+impl BatchCheckpoint {
+    pub fn new() -> Self {
+        Self {
+            items: HashMap::new(),
+        }
+    }
+
+    pub fn load_from_path(path: &Path) -> Self {
+        if path.exists() {
+            if let Ok(content) = fs::read_to_string(path) {
+                if let Ok(cp) = serde_json::from_str(&content) {
+                    return cp;
+                }
+            }
+        }
+        Self::new()
+    }
+
+    pub fn save_to_path(&self, path: &Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            if !parent.as_os_str().is_empty() {
+                let _ = fs::create_dir_all(parent);
+            }
+        }
+        let json = serde_json::to_string_pretty(self)?;
+        fs::write(path, json)?;
+        Ok(())
+    }
+
+    pub fn mark_completed(&mut self, url: &str, title: &str) {
+        self.items.insert(
+            url.to_string(),
+            ItemStatus::Completed {
+                title: title.to_string(),
+                timestamp: current_timestamp(),
+            },
+        );
+    }
+
+    pub fn mark_failed(&mut self, url: &str, error: &str) {
+        self.items.insert(
+            url.to_string(),
+            ItemStatus::Failed {
+                error: error.to_string(),
+                timestamp: current_timestamp(),
+            },
+        );
+    }
+
+    pub fn is_completed(&self, url: &str) -> bool {
+        matches!(self.items.get(url), Some(ItemStatus::Completed { .. }))
+    }
+
+    pub fn get_status(&self, url: &str) -> Option<&ItemStatus> {
+        self.items.get(url)
+    }
+}
+
+fn current_timestamp() -> String {
+    match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(d) => format!("unix:{}", d.as_secs()),
+        Err(_) => "unknown".to_string(),
+    }
+}
+
+pub fn determine_checkpoint_path(inputs: &[String], output_dir: Option<&str>) -> PathBuf {
+    if let Some(first_file) = inputs.iter().find(|i| Path::new(i).is_file()) {
+        PathBuf::from(format!("{}.dlp_checkpoint.json", first_file))
+    } else if let Some(dir) = output_dir {
+        Path::new(dir).join(".dlp_checkpoint.json")
+    } else {
+        PathBuf::from(".dlp_checkpoint.json")
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct BatchReport {
     pub total: usize,
     pub succeeded: usize,
+    pub skipped: usize,
     pub failed: Vec<(String, String)>,
 }
 
@@ -20,6 +111,9 @@ impl BatchReport {
         println!("╠══════════════════════════════════════════════════╣");
         println!("║  Total URLs Processed : {:<24} ║", self.total);
         println!("║  ✅ Succeeded         : {:<24} ║", self.succeeded);
+        if self.skipped > 0 {
+            println!("║  ⏭️  Skipped (Resumed)  : {:<24} ║", self.skipped);
+        }
         println!("║  ❌ Failed            : {:<24} ║", self.failed.len());
         println!("╚══════════════════════════════════════════════════╝");
 
@@ -30,7 +124,7 @@ impl BatchReport {
                 println!("   Reason: {}\n", err);
             }
         } else {
-            println!("🎉 All items in the batch downloaded successfully!\n");
+            println!("🎉 All items in the batch processed successfully!\n");
         }
     }
 }
@@ -81,6 +175,8 @@ pub fn run_batch(
     quality_override: Option<&str>,
     lyrics_override: Option<bool>,
     output_dir: Option<&str>,
+    resume: bool,
+    checkpoint_path: Option<&Path>,
 ) -> Result<BatchReport> {
     if urls.is_empty() {
         println!("⚠️  Batch queue is empty. No URLs to download.");
@@ -89,19 +185,49 @@ pub fn run_batch(
 
     Downloader::verify_dependencies()?;
 
+    let default_cp_path = PathBuf::from(".dlp_checkpoint.json");
+    let resolved_cp_path = checkpoint_path.unwrap_or(&default_cp_path);
+
+    let mut checkpoint = if resume {
+        let loaded = BatchCheckpoint::load_from_path(resolved_cp_path);
+        println!("💾 Loaded checkpoint from '{}' (Resumed mode)", resolved_cp_path.display());
+        loaded
+    } else {
+        BatchCheckpoint::new()
+    };
+
     let total = urls.len();
     let mut report = BatchReport {
         total,
         succeeded: 0,
+        skipped: 0,
         failed: Vec::new(),
     };
 
     let mode_desc = explicit_preset.unwrap_or("Auto-Detect per Item");
     println!("\n🚀 Starting smart batch processing for {} media items...", total);
-    println!("⚙️  Batch Strategy: {}\n", mode_desc);
+    println!("⚙️  Batch Strategy: {}", mode_desc);
+    if resume {
+        println!("🔄 Mode          : Resume / Checkpoint Enabled");
+    }
+    println!();
 
     for (index, url) in urls.iter().enumerate() {
         let item_num = index + 1;
+
+        // Check if item was previously completed when resuming
+        if resume && checkpoint.is_completed(url) {
+            let title = match checkpoint.get_status(url) {
+                Some(ItemStatus::Completed { title, .. }) => title.as_str(),
+                _ => "Unknown",
+            };
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            println!("📦 [{}/{}] ⏭️  Skipping (Already Downloaded): {}", item_num, total, url);
+            println!("   Title: {}", title);
+            report.skipped += 1;
+            continue;
+        }
+
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         println!("📦 [{}/{}] Processing: {}", item_num, total, url);
 
@@ -109,8 +235,11 @@ pub fn run_batch(
         let meta = match Downloader::fetch_metadata(url) {
             Ok(m) => m,
             Err(e) => {
+                let err_msg = format!("Metadata error: {e}");
                 eprintln!("❌ Failed to inspect metadata: {e}");
-                report.failed.push((url.clone(), format!("Metadata error: {e}")));
+                checkpoint.mark_failed(url, &err_msg);
+                let _ = checkpoint.save_to_path(resolved_cp_path);
+                report.failed.push((url.clone(), err_msg));
                 continue;
             }
         };
@@ -127,7 +256,10 @@ pub fn run_batch(
         let mut preset: Preset = match preset_manager.get(&preset_name) {
             Some(p) => p.clone(),
             None => {
-                report.failed.push((url.clone(), format!("Preset '{}' not found", preset_name)));
+                let err_msg = format!("Preset '{}' not found", preset_name);
+                checkpoint.mark_failed(url, &err_msg);
+                let _ = checkpoint.save_to_path(resolved_cp_path);
+                report.failed.push((url.clone(), err_msg));
                 continue;
             }
         };
@@ -146,7 +278,10 @@ pub fn run_batch(
         let effective_quality = match preset.effective_quality_preference(quality_override, orientation) {
             Ok(q) => q,
             Err(e) => {
-                report.failed.push((url.clone(), format!("Quality resolution error: {e}")));
+                let err_msg = format!("Quality resolution error: {e}");
+                checkpoint.mark_failed(url, &err_msg);
+                let _ = checkpoint.save_to_path(resolved_cp_path);
+                report.failed.push((url.clone(), err_msg));
                 continue;
             }
         };
@@ -163,6 +298,8 @@ pub fn run_batch(
         match Downloader::download(url, &preset, &effective_quality, output_dir) {
             Ok(_) => {
                 println!("✅ Finished [{}/{}]", item_num, total);
+                checkpoint.mark_completed(url, &meta.title);
+                let _ = checkpoint.save_to_path(resolved_cp_path);
                 report.succeeded += 1;
 
                 // Synchronize lyrics for music tracks
@@ -172,8 +309,11 @@ pub fn run_batch(
                 }
             }
             Err(e) => {
+                let err_msg = format!("Download error: {e}");
                 eprintln!("❌ Download failed: {e}");
-                report.failed.push((url.clone(), format!("Download error: {e}")));
+                checkpoint.mark_failed(url, &err_msg);
+                let _ = checkpoint.save_to_path(resolved_cp_path);
+                report.failed.push((url.clone(), err_msg));
             }
         }
     }

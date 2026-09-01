@@ -60,4 +60,17 @@ impl QualityPreference {
             }
         }
     }
+
+    /// Provides next fallback quality if the requested format/resolution is unavailable.
+    pub fn fallback_step(&self) -> Option<QualityPreference> {
+        match self {
+            QualityPreference::SpecificHeight(h) if *h > 1440 => Some(QualityPreference::SpecificHeight(1440)),
+            QualityPreference::SpecificHeight(h) if *h > 1080 => Some(QualityPreference::SpecificHeight(1080)),
+            QualityPreference::SpecificHeight(h) if *h > 720 => Some(QualityPreference::SpecificHeight(720)),
+            QualityPreference::SpecificHeight(h) if *h > 480 => Some(QualityPreference::SpecificHeight(480)),
+            QualityPreference::SpecificHeight(_) => Some(QualityPreference::Best),
+            QualityPreference::Best => None,
+        }
+    }
 }
+
