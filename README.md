@@ -4,8 +4,9 @@
 
 ---
 
-## ✨ Fitur Utama (v1.4.0 Stable Release)
+## ✨ Fitur Utama (v1.5.0 Stable Release)
 
+- **🧩 Plugin / Provider Architecture (v1.5)**: Dekopling logika platform berbasis Rust Trait (`pub trait Provider` & `ProviderRegistry`) untuk routing otomatis platform (TikTok, YouTube, Generic) yang modular dan mudah diekstensikan.
 - **🎵 Music Pipeline 2.0 (v1.4)**: Pengorganisasian folder album otomatis (`Artist/Album/01 - Track Title.opus`), pemetaan tag metadata audio lengkap (`Artist`, `Album Artist`, `Track`, `Track Number`, `Disc Number`, `Album`, `Genre`, `Release Date`), serta pencarian lirik LRCLIB pintar yang kebal dari prefix nomor trek dan embel-embel remaster.
 - **🔍 Decision Trace & UX Transparency (v1.3)**: Flag diagnostik `--explain` untuk membedah transparansi rantai keputusan cerdas `dlp` (platform, orientasi, policy engine, format selector, dan tahapan pipeline postprocessing) tanpa mengunduh.
 - **🧹 Multi-Tier Metadata Normalization (v1.3)**: Sanitasi otomatis judul dari sampah tag MV/Official Video/Performance Video/Remastered, pembersihan uploader/artist (`- Topic`), dan penamaan berkas bersih bebas karakter ilegal.
@@ -95,4 +96,4 @@ Jalankan seluruh test suite dengan:
 ```bash
 cargo test
 ```
-Semua 42 pengujian unit dan integrasi terverifikasi 100% *green*.
+Semua 45 pengujian unit dan integrasi terverifikasi 100% *green*.

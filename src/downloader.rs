@@ -32,20 +32,15 @@ impl Downloader {
         }
     }
 
-    /// Fetch video metadata with automatic transient retry & anti-bot protection.
+    /// Fetch video metadata through the Provider registry.
     pub fn fetch_metadata(url: &str) -> Result<VideoMetadata> {
-        if TikTokFallback::is_tiktok_url(url) {
-            if let Ok(meta) = TikTokFallback::fetch_metadata(url) {
-                return Ok(meta);
-            }
-            println!("⚠️  TikWM metadata fetch failed. Falling back to yt-dlp with impersonation...");
-        }
+        let registry = crate::provider::ProviderRegistry::new();
+        registry.find_provider(url).analyze(url)
+    }
 
-        let mut impersonate_client: Option<&str> = if TikTokFallback::is_tiktok_url(url) {
-            Some("chrome")
-        } else {
-            None
-        };
+    /// Fetch metadata via yt-dlp with automatic transient retry & anti-bot protection.
+    pub fn fetch_metadata_ytdlp(url: &str, impersonate_client: Option<&str>) -> Result<VideoMetadata> {
+        let mut impersonate_client = impersonate_client;
         let mut attempt = 0u32;
 
         loop {
@@ -92,33 +87,19 @@ impl Downloader {
         }
     }
 
-    /// Execute the download process (TikWM as primary for TikTok, clean custom progress bar)
+    /// Execute the download process through the Provider registry.
     pub fn download(
         url: &str,
         preset: &Preset,
         effective_quality: &QualityPreference,
         override_output_dir: Option<&str>,
     ) -> Result<()> {
-        if TikTokFallback::is_tiktok_url(url) {
-            match TikTokFallback::download(url, override_output_dir) {
-                Ok(_) => return Ok(()),
-                Err(e) => {
-                    println!("⚠️  TikWM download failed: {e}. Engaging yt-dlp 10-client impersonation rotation...");
-                    return TikTokFallback::download_with_impersonation_rotation(
-                        url,
-                        preset,
-                        effective_quality,
-                        override_output_dir,
-                    );
-                }
-            }
-        }
-
-        Self::download_via_ytdlp(url, preset, effective_quality, override_output_dir)
+        let registry = crate::provider::ProviderRegistry::new();
+        registry.find_provider(url).download(url, preset, effective_quality, override_output_dir)
     }
 
     /// Self-healing download executor with intelligent retry, format fallback, and TLS rotation.
-    fn download_via_ytdlp(
+    pub fn download_via_ytdlp(
         url: &str,
         preset: &Preset,
         effective_quality: &QualityPreference,

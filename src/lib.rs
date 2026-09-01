@@ -13,6 +13,7 @@ pub mod normalizer;
 pub mod orientation;
 pub mod preset;
 pub mod progress;
+pub mod provider;
 pub mod quality;
 pub mod recovery;
 pub mod scheduler;
