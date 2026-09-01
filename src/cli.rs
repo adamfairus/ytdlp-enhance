@@ -5,7 +5,7 @@ use clap_complete::Shell;
 #[command(
     name = "dlp",
     author = "Adam F",
-    version = "1.2.0",
+    version = "1.3.0",
     about = "Smart orchestration and CLI wrapper for yt-dlp and ffmpeg",
     long_about = "dlp is an intelligent CLI orchestration layer above yt-dlp and ffmpeg that inspects metadata, detects video orientation, and applies customizable presets and batch downloads."
 )]
@@ -32,6 +32,10 @@ pub struct Cli {
     /// Only inspect and display metadata without downloading
     #[arg(short = 'i', long = "info")]
     pub info_only: bool,
+
+    /// Explain the decision trace (policies, format selection, post-processing) without downloading
+    #[arg(long = "explain")]
+    pub explain: bool,
 
     /// Custom output directory
     #[arg(short = 'o', long = "output-dir")]
@@ -79,6 +83,10 @@ pub struct DownloadArgs {
     /// Only inspect and display metadata without downloading
     #[arg(short = 'i', long = "info")]
     pub info_only: bool,
+
+    /// Explain the decision trace (policies, format selection, post-processing) without downloading
+    #[arg(long = "explain")]
+    pub explain: bool,
 
     /// Custom output directory
     #[arg(short = 'o', long = "output-dir")]

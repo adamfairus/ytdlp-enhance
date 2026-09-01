@@ -4,8 +4,10 @@
 
 ---
 
-## ✨ Fitur Utama (v1.2.0 Stable Release)
+## ✨ Fitur Utama (v1.3.0 Stable Release)
 
+- **🔍 Decision Trace & UX Transparency (v1.3)**: Flag diagnostik `--explain` untuk membedah transparansi rantai keputusan cerdas `dlp` (platform, orientasi, policy engine, format selector, dan tahapan pipeline postprocessing) tanpa mengunduh.
+- **🧹 Multi-Tier Metadata Normalization (v1.3)**: Sanitasi otomatis judul dari sampah tag MV/Official Video/Performance Video, pembersihan uploader/artist (`- Topic`), dan penamaan berkas bersih bebas karakter ilegal.
 - **⚡ Controlled Parallel Download Queue (v1.2)**: Mengunduh puluhan media secara paralel dengan batas konkurensi terkelola (`dlp batch urls.txt -c 3` atau via `config.toml` `concurrency = 3`).
 - **📋 Smart Queue Scheduler (v1.2)**: Pra-analisis cerdas antrean URL sebelum dieksekusi, mengelompokkan tugas per platform (YouTube, TikTok, Music) dan menegakkan perlindungan *rate-limit* otomatis untuk mencegah pemblokiran IP.
 - **🛡️ Smart Self-Healing Error Recovery (v1.1)**: Deteksi cerdas kegagalan download (`Transient`, `FormatUnavailable`, `BotBlockOrExtractor`, `FFmpegProcessing`, `Permanent`):
@@ -49,7 +51,13 @@ dlp "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 dlp
 ```
 
-### 3. Smart Batch Download (Parallel Queue & Resume Checkpoint)
+### 3. Decision Trace Diagnostik (`--explain`)
+Melihat rantai evaluasi keputusan cerdas (kebijakan format, orientasi, preset, dan tahapan post-processing) tanpa mengeksekusi pengunduhan:
+```bash
+dlp "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --explain
+```
+
+### 4. Smart Batch Download (Parallel Queue & Resume Checkpoint)
 ```bash
 # Otomatis mengklasifikasikan dan mengunduh tiap URL di urls.txt:
 dlp batch urls.txt
@@ -61,12 +69,12 @@ dlp batch urls.txt -c 3
 dlp batch urls.txt --resume -c 3
 ```
 
-### 4. Diagnostik Sistem (Doctor)
+### 5. Diagnostik Sistem (Doctor)
 ```bash
 dlp doctor
 ```
 
-### 5. Menghasilkan Shell Auto-Completions
+### 6. Menghasilkan Shell Auto-Completions
 ```bash
 # Untuk Zsh:
 dlp completions zsh > ~/.zfunc/_dlp
@@ -86,4 +94,4 @@ Jalankan seluruh test suite dengan:
 ```bash
 cargo test
 ```
-Semua 34 pengujian unit dan integrasi terverifikasi 100% *green*.
+Semua 42 pengujian unit dan integrasi terverifikasi 100% *green*.

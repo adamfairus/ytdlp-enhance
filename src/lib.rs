@@ -9,6 +9,7 @@ pub mod error;
 pub mod interactive;
 pub mod lyrics;
 pub mod metadata;
+pub mod normalizer;
 pub mod orientation;
 pub mod preset;
 pub mod progress;
@@ -103,13 +104,14 @@ pub fn run() -> Result<()> {
     }
 
     // 6. Resolve single-media execution parameters
-    let (url, explicit_preset, quality_override, lyrics_override, info_only, output_dir) = match &args.command {
+    let (url, explicit_preset, quality_override, lyrics_override, info_only, explain, output_dir) = match &args.command {
         Some(Commands::Video(d)) => (
             d.url.trim().to_string(),
             Some("video".to_string()),
             d.quality.as_deref(),
             d.lyrics,
             d.info_only,
+            d.explain,
             d.output_dir.as_deref(),
         ),
         Some(Commands::Music(d)) => (
@@ -118,6 +120,7 @@ pub fn run() -> Result<()> {
             d.quality.as_deref(),
             d.lyrics,
             d.info_only,
+            d.explain,
             d.output_dir.as_deref(),
         ),
         Some(Commands::Tiktok(d)) => (
@@ -126,6 +129,7 @@ pub fn run() -> Result<()> {
             d.quality.as_deref(),
             d.lyrics,
             d.info_only,
+            d.explain,
             d.output_dir.as_deref(),
         ),
         None => {
@@ -139,6 +143,7 @@ pub fn run() -> Result<()> {
                 args.quality.as_deref(),
                 args.lyrics,
                 args.info_only,
+                args.explain,
                 args.output_dir.as_deref(),
             )
         }
@@ -198,6 +203,19 @@ pub fn run() -> Result<()> {
 
     // 10. Compute Effective Quality with Orientation Policy
     let effective_quality = preset.effective_quality_preference(quality_override, orientation)?;
+
+    // If explain flag is set, display detailed Decision Trace and exit
+    if explain {
+        let trace = normalizer::DecisionTrace::build(
+            &url,
+            &meta,
+            &preset,
+            &effective_quality,
+            output_dir,
+        );
+        trace.print_trace();
+        return Ok(());
+    }
 
     if preset.extract_audio {
         println!("🎵 Target Mode   : Audio Extraction ({})\n", preset.audio_format.as_deref().unwrap_or("opus"));
