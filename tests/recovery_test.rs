@@ -1,5 +1,7 @@
 use dlp::quality::QualityPreference;
-use dlp::recovery::{DiagnosticReport, FailureCategory};
+use dlp::recovery::{
+    DiagnosticReport, FailureCategory, FailureContext, RecoveryAction, RecoveryPolicy,
+};
 
 #[test]
 fn test_classify_transient_network_errors() {
@@ -105,3 +107,177 @@ fn test_diagnostic_report_display() {
     let display_str = report.to_string();
     assert!(display_str.contains("Format Unavailable (399)"));
 }
+
+#[test]
+fn test_failure_context_construction() {
+    let ctx = FailureContext::new(Some(1), "test error", "download", 1);
+    assert_eq!(ctx.exit_code, Some(1));
+    assert_eq!(ctx.stderr, "test error");
+    assert_eq!(ctx.operation, "download");
+    assert_eq!(ctx.attempt, 1);
+    assert_eq!(ctx.provider, None);
+
+    let ctx_with_prov = ctx.with_provider("youtube");
+    assert_eq!(ctx_with_prov.provider, Some("youtube".to_string()));
+}
+
+#[test]
+fn test_recovery_policy_decide_retry_with_backoff() {
+    let policy = RecoveryPolicy::default();
+    let cat = FailureCategory::Transient {
+        reason: "Connection reset by peer".to_string(),
+    };
+
+    // Attempt 1: backoff delay = 2 * 2^0 = 2 secs
+    let ctx1 = FailureContext::new(Some(1), "Connection reset", "download", 1);
+    let action1 = policy.decide(&ctx1, &cat, &QualityPreference::Best, None);
+    assert_eq!(
+        action1,
+        RecoveryAction::RetryWithBackoff {
+            delay_secs: 2,
+            reason: "Connection reset by peer".to_string(),
+        }
+    );
+
+    // Attempt 2: backoff delay = 2 * 2^1 = 4 secs
+    let ctx2 = FailureContext::new(Some(1), "Connection reset", "download", 2);
+    let action2 = policy.decide(&ctx2, &cat, &QualityPreference::Best, None);
+    assert_eq!(
+        action2,
+        RecoveryAction::RetryWithBackoff {
+            delay_secs: 4,
+            reason: "Connection reset by peer".to_string(),
+        }
+    );
+
+    // Attempt 3 (attempt == max_transient_retries): abort
+    let ctx3 = FailureContext::new(Some(1), "Connection reset", "download", 3);
+    let action3 = policy.decide(&ctx3, &cat, &QualityPreference::Best, None);
+    assert_eq!(
+        action3,
+        RecoveryAction::Abort {
+            reason: "Exceeded max retries (3): Connection reset by peer".to_string(),
+        }
+    );
+}
+
+#[test]
+fn test_recovery_policy_decide_rotate_impersonation() {
+    let policy = RecoveryPolicy::default();
+    let cat = FailureCategory::BotBlockOrExtractor {
+        reason: "Sign in to confirm you're not a bot".to_string(),
+    };
+    let ctx = FailureContext::new(Some(1), "bot block", "download", 1);
+
+    // None -> safari-18
+    let action1 = policy.decide(&ctx, &cat, &QualityPreference::Best, None);
+    assert_eq!(
+        action1,
+        RecoveryAction::RotateImpersonation {
+            client: "safari-18".to_string(),
+            reason: "Sign in to confirm you're not a bot".to_string(),
+        }
+    );
+
+    // safari-18 -> chrome-136
+    let action2 = policy.decide(&ctx, &cat, &QualityPreference::Best, Some("safari-18"));
+    assert_eq!(
+        action2,
+        RecoveryAction::RotateImpersonation {
+            client: "chrome-136".to_string(),
+            reason: "Sign in to confirm you're not a bot".to_string(),
+        }
+    );
+
+    // chrome-136 -> firefox-135
+    let action3 = policy.decide(&ctx, &cat, &QualityPreference::Best, Some("chrome-136"));
+    assert_eq!(
+        action3,
+        RecoveryAction::RotateImpersonation {
+            client: "firefox-135".to_string(),
+            reason: "Sign in to confirm you're not a bot".to_string(),
+        }
+    );
+
+    // firefox-135 -> Abort
+    let action4 = policy.decide(&ctx, &cat, &QualityPreference::Best, Some("firefox-135"));
+    assert_eq!(
+        action4,
+        RecoveryAction::Abort {
+            reason: "All TLS impersonation options exhausted".to_string(),
+        }
+    );
+}
+
+#[test]
+fn test_recovery_policy_decide_fallback_format() {
+    let policy = RecoveryPolicy::default();
+    let cat = FailureCategory::FormatUnavailable {
+        requested: Some("1080".to_string()),
+        details: "1080p stream unavailable".to_string(),
+    };
+    let ctx = FailureContext::new(Some(1), "format unavailable", "download", 1);
+
+    // SpecificHeight(1080) -> fallback step is SpecificHeight(720)
+    let action1 = policy.decide(&ctx, &cat, &QualityPreference::SpecificHeight(1080), None);
+    assert_eq!(
+        action1,
+        RecoveryAction::FallbackFormat {
+            next_quality: QualityPreference::SpecificHeight(720),
+            reason: "Format unavailable, falling back from 1080p stream unavailable".to_string(),
+        }
+    );
+
+    // Best has no further fallback step -> Abort
+    let action2 = policy.decide(&ctx, &cat, &QualityPreference::Best, None);
+    assert_eq!(
+        action2,
+        RecoveryAction::Abort {
+            reason: "No further format fallbacks available".to_string(),
+        }
+    );
+}
+
+#[test]
+fn test_recovery_policy_decide_skip_permanent() {
+    let policy = RecoveryPolicy::default();
+    let cat = FailureCategory::Permanent {
+        reason: "This video is private".to_string(),
+    };
+    let ctx = FailureContext::new(Some(1), "Private video", "download", 1);
+
+    let action = policy.decide(&ctx, &cat, &QualityPreference::Best, None);
+    assert_eq!(
+        action,
+        RecoveryAction::SkipPermanent {
+            reason: "This video is private".to_string(),
+        }
+    );
+}
+
+#[test]
+fn test_recovery_policy_decide_ffmpeg_and_unknown() {
+    let policy = RecoveryPolicy::default();
+    let ctx = FailureContext::new(Some(1), "error", "download", 1);
+
+    let cat_ffmpeg = FailureCategory::FFmpegProcessing {
+        reason: "Conversion failed".to_string(),
+    };
+    let action1 = policy.decide(&ctx, &cat_ffmpeg, &QualityPreference::Best, None);
+    assert_eq!(
+        action1,
+        RecoveryAction::Abort {
+            reason: "Conversion failed".to_string(),
+        }
+    );
+
+    let cat_unknown = FailureCategory::Unknown("Unexpected EOF".to_string());
+    let action2 = policy.decide(&ctx, &cat_unknown, &QualityPreference::Best, None);
+    assert_eq!(
+        action2,
+        RecoveryAction::Abort {
+            reason: "Unexpected EOF".to_string(),
+        }
+    );
+}
+

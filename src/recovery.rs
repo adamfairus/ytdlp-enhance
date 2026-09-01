@@ -157,6 +157,129 @@ impl FailureCategory {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct FailureContext {
+    pub exit_code: Option<i32>,
+    pub stderr: String,
+    pub provider: Option<String>,
+    pub operation: String,
+    pub attempt: u32,
+}
+
+impl FailureContext {
+    pub fn new(exit_code: Option<i32>, stderr: &str, operation: &str, attempt: u32) -> Self {
+        Self {
+            exit_code,
+            stderr: stderr.to_string(),
+            provider: None,
+            operation: operation.to_string(),
+            attempt,
+        }
+    }
+
+    pub fn with_provider(mut self, provider: &str) -> Self {
+        self.provider = Some(provider.to_string());
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RecoveryAction {
+    RetryWithBackoff { delay_secs: u64, reason: String },
+    RotateImpersonation { client: String, reason: String },
+    FallbackFormat { next_quality: crate::quality::QualityPreference, reason: String },
+    SkipPermanent { reason: String },
+    Abort { reason: String },
+}
+
+#[derive(Debug, Clone)]
+pub struct RecoveryPolicy {
+    pub max_transient_retries: u32,
+    pub base_backoff_secs: u64,
+}
+
+impl Default for RecoveryPolicy {
+    fn default() -> Self {
+        Self {
+            max_transient_retries: 3,
+            base_backoff_secs: 2,
+        }
+    }
+}
+
+impl RecoveryPolicy {
+    pub fn new(max_transient_retries: u32, base_backoff_secs: u64) -> Self {
+        Self {
+            max_transient_retries,
+            base_backoff_secs,
+        }
+    }
+
+    pub fn decide(
+        &self,
+        ctx: &FailureContext,
+        category: &FailureCategory,
+        current_quality: &crate::quality::QualityPreference,
+        current_impersonate: Option<&str>,
+    ) -> RecoveryAction {
+        match category {
+            FailureCategory::FormatUnavailable { requested: _, details } => {
+                if let Some(next_q) = current_quality.fallback_step() {
+                    RecoveryAction::FallbackFormat {
+                        next_quality: next_q,
+                        reason: format!("Format unavailable, falling back from {}", details),
+                    }
+                } else {
+                    RecoveryAction::Abort {
+                        reason: "No further format fallbacks available".to_string(),
+                    }
+                }
+            }
+            FailureCategory::Transient { reason } => {
+                if ctx.attempt < self.max_transient_retries {
+                    let delay = self.base_backoff_secs * 2u64.pow(ctx.attempt.saturating_sub(1));
+                    RecoveryAction::RetryWithBackoff {
+                        delay_secs: delay,
+                        reason: reason.clone(),
+                    }
+                } else {
+                    RecoveryAction::Abort {
+                        reason: format!("Exceeded max retries ({}): {}", self.max_transient_retries, reason),
+                    }
+                }
+            }
+            FailureCategory::BotBlockOrExtractor { reason } => {
+                let next_client = match current_impersonate {
+                    None => Some("safari-18"),
+                    Some("safari-18") => Some("chrome-136"),
+                    Some("chrome-136") => Some("firefox-135"),
+                    _ => None,
+                };
+                if let Some(client) = next_client {
+                    RecoveryAction::RotateImpersonation {
+                        client: client.to_string(),
+                        reason: reason.clone(),
+                    }
+                } else {
+                    RecoveryAction::Abort {
+                        reason: "All TLS impersonation options exhausted".to_string(),
+                    }
+                }
+            }
+            FailureCategory::Permanent { reason } => {
+                RecoveryAction::SkipPermanent {
+                    reason: reason.clone(),
+                }
+            }
+            FailureCategory::FFmpegProcessing { reason } | FailureCategory::Unknown(reason) => {
+                RecoveryAction::Abort {
+                    reason: reason.clone(),
+                }
+            }
+        }
+    }
+}
+
 /// Structured diagnostic report for clear, user-friendly terminal output.
 #[derive(Debug, Clone)]
 pub struct DiagnosticReport {

@@ -6,7 +6,7 @@ use crate::metadata::VideoMetadata;
 use crate::preset::Preset;
 use crate::progress::ProgressTracker;
 use crate::quality::QualityPreference;
-use crate::recovery::{sleep_with_backoff, DiagnosticReport, FailureCategory};
+use crate::recovery::{DiagnosticReport, FailureCategory, FailureContext, RecoveryAction, RecoveryPolicy};
 use crate::tiktok::TikTokFallback;
 
 pub struct YtDlpEngine;
@@ -89,10 +89,10 @@ impl YtDlpEngine {
         effective_quality: &QualityPreference,
         override_output_dir: Option<&str>,
     ) -> Result<()> {
+        let policy = RecoveryPolicy::default();
         let mut current_quality = effective_quality.clone();
         let mut impersonate_override: Option<String> = None;
         let mut transient_attempts = 0u32;
-        let max_transient_retries = 3u32;
 
         loop {
             let attempt_result = Self::execute_single_download(
@@ -107,89 +107,53 @@ impl YtDlpEngine {
                 Ok(()) => return Ok(()),
                 Err(DlpError::YtDlpFailed { code, stderr }) => {
                     let category = FailureCategory::classify(&stderr);
+                    let ctx = FailureContext::new(Some(code), &stderr, "download", transient_attempts + 1);
+                    let action = policy.decide(&ctx, &category, &current_quality, impersonate_override.as_deref());
 
-                    match category {
-                        FailureCategory::FormatUnavailable { requested, details } => {
-                            if let Some(next_q) = current_quality.fallback_step() {
-                                let fallback_desc = match &next_q {
-                                    QualityPreference::Best => "best available stream".to_string(),
-                                    QualityPreference::SpecificHeight(h) => format!("{}p resolution", h),
-                                };
-                                let report = DiagnosticReport::new(
-                                    FailureCategory::FormatUnavailable { requested, details },
-                                    Some(format!("Fallback to {} → retrying...", fallback_desc)),
-                                );
-                                report.print_block();
-                                current_quality = next_q;
-                                continue;
-                            } else {
-                                let report = DiagnosticReport::new(
-                                    FailureCategory::FormatUnavailable { requested, details },
-                                    Some("No further format fallbacks available.".to_string()),
-                                );
-                                report.print_block();
-                                return Err(DlpError::YtDlpFailed { code, stderr });
-                            }
-                        }
-                        FailureCategory::Transient { reason } => {
-                            if transient_attempts < max_transient_retries {
-                                transient_attempts += 1;
-                                let report = DiagnosticReport::new(
-                                    FailureCategory::Transient { reason },
-                                    Some(format!(
-                                        "Attempt {}/{} failed. Backing off...",
-                                        transient_attempts, max_transient_retries
-                                    )),
-                                );
-                                report.print_block();
-                                sleep_with_backoff(transient_attempts, 2);
-                                continue;
-                            } else {
-                                let report = DiagnosticReport::new(
-                                    FailureCategory::Transient { reason },
-                                    Some("Max transient retries exceeded. Aborting.".to_string()),
-                                );
-                                report.print_block();
-                                return Err(DlpError::YtDlpFailed { code, stderr });
-                            }
-                        }
-                        FailureCategory::BotBlockOrExtractor { reason } => {
-                            let next_impersonate = match impersonate_override.as_deref() {
-                                None => Some("safari-18"),
-                                Some("safari-18") => Some("chrome-136"),
-                                Some("chrome-136") => Some("firefox-135"),
-                                _ => None,
+                    match action {
+                        RecoveryAction::FallbackFormat { next_quality, reason: _ } => {
+                            let fallback_desc = match &next_quality {
+                                QualityPreference::Best => "best available stream".to_string(),
+                                QualityPreference::SpecificHeight(h) => format!("{}p resolution", h),
                             };
-
-                            if let Some(client) = next_impersonate {
-                                let report = DiagnosticReport::new(
-                                    FailureCategory::BotBlockOrExtractor { reason },
-                                    Some(format!("Rotating TLS client fingerprint to '{}'...", client)),
-                                );
-                                report.print_block();
-                                impersonate_override = Some(client.to_string());
-                                continue;
-                            } else {
-                                let report = DiagnosticReport::new(
-                                    FailureCategory::BotBlockOrExtractor { reason },
-                                    Some("All anti-bot impersonation strategies exhausted.".to_string()),
-                                );
-                                report.print_block();
-                                return Err(DlpError::YtDlpFailed { code, stderr });
-                            }
+                            let report = DiagnosticReport::new(
+                                category,
+                                Some(format!("Fallback to {} → retrying...", fallback_desc)),
+                            );
+                            report.print_block();
+                            current_quality = next_quality;
+                            continue;
                         }
-                        FailureCategory::Permanent { reason } => {
-                            let report = DiagnosticReport::new(FailureCategory::Permanent { reason }, None);
+                        RecoveryAction::RetryWithBackoff { delay_secs, reason: _ } => {
+                            transient_attempts += 1;
+                            let report = DiagnosticReport::new(
+                                category,
+                                Some(format!(
+                                    "Attempt {}/{} failed. Backing off...",
+                                    transient_attempts, policy.max_transient_retries
+                                )),
+                            );
+                            report.print_block();
+                            println!("⏳ Backing off for {}s before retrying (attempt {})...", delay_secs, transient_attempts);
+                            thread::sleep(std::time::Duration::from_secs(delay_secs));
+                            continue;
+                        }
+                        RecoveryAction::RotateImpersonation { client, reason: _ } => {
+                            let report = DiagnosticReport::new(
+                                category,
+                                Some(format!("Rotating TLS client fingerprint to '{}'...", client)),
+                            );
+                            report.print_block();
+                            impersonate_override = Some(client);
+                            continue;
+                        }
+                        RecoveryAction::SkipPermanent { reason: _ } => {
+                            let report = DiagnosticReport::new(category, None);
                             report.print_block();
                             return Err(DlpError::YtDlpFailed { code, stderr });
                         }
-                        FailureCategory::FFmpegProcessing { reason } => {
-                            let report = DiagnosticReport::new(FailureCategory::FFmpegProcessing { reason }, None);
-                            report.print_block();
-                            return Err(DlpError::YtDlpFailed { code, stderr });
-                        }
-                        FailureCategory::Unknown(reason) => {
-                            let report = DiagnosticReport::new(FailureCategory::Unknown(reason), None);
+                        RecoveryAction::Abort { reason } => {
+                            let report = DiagnosticReport::new(category, Some(reason));
                             report.print_block();
                             return Err(DlpError::YtDlpFailed { code, stderr });
                         }
