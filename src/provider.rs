@@ -1,4 +1,4 @@
-use crate::downloader::Downloader;
+use crate::engine::YtDlpEngine;
 use crate::error::Result;
 use crate::metadata::VideoMetadata;
 use crate::preset::Preset;
@@ -48,7 +48,7 @@ impl Provider for TikTokProvider {
             return Ok(meta);
         }
         println!("⚠️  TikWM metadata fetch failed. Falling back to yt-dlp with impersonation...");
-        Downloader::fetch_metadata_ytdlp(url, Some("chrome"))
+        YtDlpEngine::fetch_metadata(url, Some("chrome"))
     }
 
     fn download(
@@ -91,7 +91,7 @@ impl Provider for YouTubeProvider {
     }
 
     fn analyze(&self, url: &str) -> Result<VideoMetadata> {
-        Downloader::fetch_metadata_ytdlp(url, None)
+        YtDlpEngine::fetch_metadata(url, None)
     }
 
     fn download(
@@ -101,7 +101,7 @@ impl Provider for YouTubeProvider {
         effective_quality: &QualityPreference,
         override_output_dir: Option<&str>,
     ) -> Result<()> {
-        Downloader::download_via_ytdlp(url, preset, effective_quality, override_output_dir)
+        YtDlpEngine::download(url, preset, effective_quality, override_output_dir)
     }
 
     fn max_safe_concurrency(&self, desired: usize) -> usize {
@@ -122,7 +122,7 @@ impl Provider for GenericProvider {
     }
 
     fn analyze(&self, url: &str) -> Result<VideoMetadata> {
-        Downloader::fetch_metadata_ytdlp(url, None)
+        YtDlpEngine::fetch_metadata(url, None)
     }
 
     fn download(
@@ -132,7 +132,7 @@ impl Provider for GenericProvider {
         effective_quality: &QualityPreference,
         override_output_dir: Option<&str>,
     ) -> Result<()> {
-        Downloader::download_via_ytdlp(url, preset, effective_quality, override_output_dir)
+        YtDlpEngine::download(url, preset, effective_quality, override_output_dir)
     }
 
     fn max_safe_concurrency(&self, desired: usize) -> usize {

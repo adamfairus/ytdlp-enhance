@@ -5,6 +5,7 @@ pub mod completions;
 pub mod config;
 pub mod doctor;
 pub mod downloader;
+pub mod engine;
 pub mod error;
 pub mod interactive;
 pub mod lyrics;
