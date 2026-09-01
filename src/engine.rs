@@ -2,6 +2,7 @@ use std::io::Read;
 use std::process::{Command, Stdio};
 use std::thread;
 use crate::error::{DlpError, Result};
+use crate::event::{DownloadEvent, EventDispatcher};
 use crate::metadata::VideoMetadata;
 use crate::preset::Preset;
 use crate::progress::ProgressTracker;
@@ -35,6 +36,15 @@ impl YtDlpEngine {
 
     /// Fetch metadata via yt-dlp with automatic transient retry & anti-bot protection.
     pub fn fetch_metadata(url: &str, impersonate_client: Option<&str>) -> Result<VideoMetadata> {
+        Self::fetch_metadata_with_dispatcher(url, impersonate_client, None)
+    }
+
+    /// Fetch metadata via yt-dlp with optional event dispatching on success.
+    pub fn fetch_metadata_with_dispatcher(
+        url: &str,
+        impersonate_client: Option<&str>,
+        dispatcher: Option<&EventDispatcher>,
+    ) -> Result<VideoMetadata> {
         let mut impersonate_client = impersonate_client;
         let mut attempt = 0u32;
 
@@ -52,7 +62,14 @@ impl YtDlpEngine {
 
             if output.status.success() {
                 let json_str = String::from_utf8_lossy(&output.stdout);
-                return VideoMetadata::from_json(&json_str);
+                let meta = VideoMetadata::from_json(&json_str)?;
+                if let Some(d) = dispatcher {
+                    d.dispatch(&DownloadEvent::MetadataFetched {
+                        url: url.to_string(),
+                        title: meta.title.clone(),
+                    });
+                }
+                return Ok(meta);
             }
 
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -89,6 +106,30 @@ impl YtDlpEngine {
         effective_quality: &QualityPreference,
         override_output_dir: Option<&str>,
     ) -> Result<()> {
+        Self::download_with_dispatcher(url, preset, effective_quality, override_output_dir, None)
+    }
+
+    /// Self-healing download executor with event dispatching to registered listeners.
+    pub fn download_with_dispatcher(
+        url: &str,
+        preset: &Preset,
+        effective_quality: &QualityPreference,
+        override_output_dir: Option<&str>,
+        dispatcher: Option<&EventDispatcher>,
+    ) -> Result<()> {
+        let format_desc = if preset.extract_audio {
+            preset.audio_format.as_deref().unwrap_or("opus").to_string()
+        } else {
+            effective_quality.to_format_selector()
+        };
+
+        if let Some(d) = dispatcher {
+            d.dispatch(&DownloadEvent::DownloadStarted {
+                url: url.to_string(),
+                format: format_desc,
+            });
+        }
+
         let policy = RecoveryPolicy::default();
         let mut current_quality = effective_quality.clone();
         let mut impersonate_override: Option<String> = None;
@@ -104,7 +145,18 @@ impl YtDlpEngine {
             );
 
             match attempt_result {
-                Ok(()) => return Ok(()),
+                Ok(()) => {
+                    if let Some(d) = dispatcher {
+                        d.dispatch(&DownloadEvent::Completed {
+                            url: url.to_string(),
+                            output_path: override_output_dir
+                                .or(preset.output_dir.as_deref())
+                                .unwrap_or(".")
+                                .to_string(),
+                        });
+                    }
+                    return Ok(());
+                }
                 Err(DlpError::YtDlpFailed { code, stderr }) => {
                     let category = FailureCategory::classify(&stderr);
                     let ctx = FailureContext::new(Some(code), &stderr, "download", transient_attempts + 1);
@@ -112,6 +164,21 @@ impl YtDlpEngine {
 
                     match action {
                         RecoveryAction::FallbackFormat { next_quality, reason: _ } => {
+                            let from_str = match &current_quality {
+                                QualityPreference::Best => "best".to_string(),
+                                QualityPreference::SpecificHeight(h) => format!("{}p", h),
+                            };
+                            let to_str = match &next_quality {
+                                QualityPreference::Best => "best".to_string(),
+                                QualityPreference::SpecificHeight(h) => format!("{}p", h),
+                            };
+                            if let Some(d) = dispatcher {
+                                d.dispatch(&DownloadEvent::Fallback {
+                                    from_quality: from_str,
+                                    to_quality: to_str,
+                                });
+                            }
+
                             let fallback_desc = match &next_quality {
                                 QualityPreference::Best => "best available stream".to_string(),
                                 QualityPreference::SpecificHeight(h) => format!("{}p resolution", h),
@@ -124,8 +191,16 @@ impl YtDlpEngine {
                             current_quality = next_quality;
                             continue;
                         }
-                        RecoveryAction::RetryWithBackoff { delay_secs, reason: _ } => {
+                        RecoveryAction::RetryWithBackoff { delay_secs, reason } => {
                             transient_attempts += 1;
+                            if let Some(d) = dispatcher {
+                                d.dispatch(&DownloadEvent::Retry {
+                                    attempt: transient_attempts,
+                                    max_retries: policy.max_transient_retries,
+                                    reason: reason.clone(),
+                                });
+                            }
+
                             let report = DiagnosticReport::new(
                                 category,
                                 Some(format!(
@@ -150,16 +225,36 @@ impl YtDlpEngine {
                         RecoveryAction::SkipPermanent { reason: _ } => {
                             let report = DiagnosticReport::new(category, None);
                             report.print_block();
+                            if let Some(d) = dispatcher {
+                                d.dispatch(&DownloadEvent::Failed {
+                                    url: url.to_string(),
+                                    error: stderr.clone(),
+                                });
+                            }
                             return Err(DlpError::YtDlpFailed { code, stderr });
                         }
                         RecoveryAction::Abort { reason } => {
-                            let report = DiagnosticReport::new(category, Some(reason));
+                            let report = DiagnosticReport::new(category, Some(reason.clone()));
                             report.print_block();
+                            if let Some(d) = dispatcher {
+                                d.dispatch(&DownloadEvent::Failed {
+                                    url: url.to_string(),
+                                    error: reason,
+                                });
+                            }
                             return Err(DlpError::YtDlpFailed { code, stderr });
                         }
                     }
                 }
-                Err(other_err) => return Err(other_err),
+                Err(other_err) => {
+                    if let Some(d) = dispatcher {
+                        d.dispatch(&DownloadEvent::Failed {
+                            url: url.to_string(),
+                            error: other_err.to_string(),
+                        });
+                    }
+                    return Err(other_err);
+                }
             }
         }
     }

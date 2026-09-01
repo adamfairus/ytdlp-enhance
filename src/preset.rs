@@ -101,6 +101,12 @@ impl Preset {
     }
 }
 
+impl Default for Preset {
+    fn default() -> Self {
+        Preset::from_toml(include_str!("../presets/video.toml")).expect("embedded video.toml must parse")
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PresetManager {
     presets: HashMap<String, Preset>,

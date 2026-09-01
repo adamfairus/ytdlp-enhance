@@ -32,7 +32,7 @@ curl -fsSL https://raw.githubusercontent.com/adamfairus/ytdlp-enhance/main/insta
   - Script instalasi otomatis satu-baris `install.sh` yang mendeteksi OS/arsitektur, mengonfigurasi `$PATH`, dan memverifikasi dependensi.
   - Skema migrasi konfigurasi otomatis `dlp config migrate` antar versi mayor.
 - **🧪 Comprehensive Verification Matrix & Regression Protection**:
-  - 18 test suites dengan **73 unit, integration, snapshot, dan regression tests** (100% Green).
+  - 18 test suites dengan **75 unit, integration, snapshot, dan regression tests** (100% Green).
   - Golden regression tests untuk URL edge cases (YouTube Shorts, Live, Music, embed, TikTok desktop & shortlink, URL queries).
   - Terminal snapshot testing untuk memastikan stabilitas visual Decision Trace, Diagnostic Report, dan Batch Scheduler.
   - Property-based testing untuk penegakan batas resolusi, orientasi video, dan kebijakan preset.
@@ -130,4 +130,4 @@ Jalankan seluruh test suite dengan:
 ```bash
 cargo test
 ```
-Semua 73 pengujian unit, integrasi, snapshot, dan regression terverifikasi 100% *green*.
+Semua 75 pengujian unit, integrasi, snapshot, dan regression terverifikasi 100% *green*.

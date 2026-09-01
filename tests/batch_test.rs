@@ -2,9 +2,10 @@ use std::io::Write;
 use std::path::Path;
 use tempfile::{tempdir, NamedTempFile};
 use dlp::batch::{
-    determine_checkpoint_path, read_urls_from_file, resolve_inputs_to_urls, BatchCheckpoint,
-    BatchReport, ItemStatus,
+    determine_checkpoint_path, read_urls_from_file, resolve_inputs_to_urls, run_batch_parallel,
+    BatchCheckpoint, BatchReport, ItemStatus,
 };
+use dlp::preset::PresetManager;
 
 #[test]
 fn test_read_urls_from_file_with_comments_and_whitespace() {
@@ -102,3 +103,76 @@ fn test_determine_checkpoint_path() {
     let cp2 = determine_checkpoint_path(&direct_inputs, Some("/tmp/custom_dl"));
     assert_eq!(cp2, Path::new("/tmp/custom_dl/.dlp_checkpoint.json"));
 }
+
+#[test]
+fn test_run_batch_parallel_task_scheduler_integration() {
+    let dir = tempdir().unwrap();
+    let cp_path = dir.path().join("scheduler_batch.dlp_checkpoint.json");
+    let preset_mgr = PresetManager::load_all();
+
+    let urls = vec![
+        "invalid_scheme://batch_sched_1".to_string(),
+        "invalid_scheme://batch_sched_2".to_string(),
+    ];
+
+    let result = run_batch_parallel(
+        &urls,
+        &preset_mgr,
+        None,
+        None,
+        None,
+        Some(dir.path().to_str().unwrap()),
+        false,
+        &cp_path,
+        2,
+    );
+
+    assert!(result.is_ok(), "run_batch_parallel with TaskScheduler should succeed");
+    let report = result.unwrap();
+    assert_eq!(report.total, 2);
+    assert_eq!(report.failed.len(), 2);
+    assert_eq!(report.succeeded, 0);
+    assert_eq!(report.skipped, 0);
+
+    // Verify that checkpoint recorded the failed items
+    assert!(cp_path.exists());
+    let checkpoint = BatchCheckpoint::load_from_path(&cp_path);
+    assert!(matches!(checkpoint.get_status(&urls[0]), Some(ItemStatus::Failed { .. })));
+    assert!(matches!(checkpoint.get_status(&urls[1]), Some(ItemStatus::Failed { .. })));
+}
+
+#[test]
+fn test_run_batch_parallel_resume_with_scheduler() {
+    let dir = tempdir().unwrap();
+    let cp_path = dir.path().join("resume_scheduler_batch.dlp_checkpoint.json");
+    let preset_mgr = PresetManager::load_all();
+
+    let mut cp = BatchCheckpoint::new();
+    cp.mark_completed("invalid_scheme://already_done", "Completed Media");
+    cp.save_to_path(&cp_path).unwrap();
+
+    let urls = vec![
+        "invalid_scheme://already_done".to_string(),
+        "invalid_scheme://new_item".to_string(),
+    ];
+
+    let result = run_batch_parallel(
+        &urls,
+        &preset_mgr,
+        None,
+        None,
+        None,
+        Some(dir.path().to_str().unwrap()),
+        true,
+        &cp_path,
+        2,
+    );
+
+    assert!(result.is_ok());
+    let report = result.unwrap();
+    assert_eq!(report.total, 2);
+    assert_eq!(report.skipped, 1);
+    assert_eq!(report.failed.len(), 1);
+    assert_eq!(report.succeeded, 0);
+}
+

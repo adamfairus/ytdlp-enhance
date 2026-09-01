@@ -1,7 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 use dlp::classifier::{Classification, MediaType};
+use dlp::engine::YtDlpEngine;
 use dlp::event::{DownloadEvent, EventDispatcher, EventListener};
+use dlp::preset::Preset;
+use dlp::quality::QualityPreference;
 
 struct CollectorListener {
     events: Arc<Mutex<Vec<DownloadEvent>>>,
@@ -248,3 +251,48 @@ fn test_event_listener_trait_send_sync() {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<Box<dyn EventListener>>();
 }
+
+#[test]
+fn test_download_with_dispatcher_lifecycle_events() {
+    let mut dispatcher = EventDispatcher::new();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    dispatcher.register(Box::new(CollectorListener::new(Arc::clone(&events))));
+
+    let preset = Preset::default();
+    let quality = QualityPreference::Best;
+    let test_url = "invalid_scheme://event_lifecycle_test";
+
+    let result = YtDlpEngine::download_with_dispatcher(
+        test_url,
+        &preset,
+        &quality,
+        None,
+        Some(&dispatcher),
+    );
+
+    // Unrecoverable scheme error produces Err
+    assert!(result.is_err());
+
+    let recorded = events.lock().unwrap();
+    // Must record at least DownloadStarted and Failed
+    assert!(recorded.len() >= 2);
+
+    // 1. First event must be DownloadStarted
+    match &recorded[0] {
+        DownloadEvent::DownloadStarted { url, format } => {
+            assert_eq!(url, test_url);
+            assert_eq!(format, "bestvideo+bestaudio/best");
+        }
+        other => panic!("Expected DownloadStarted as first event, got {:?}", other),
+    }
+
+    // 2. Final event must be Failed
+    match recorded.last().unwrap() {
+        DownloadEvent::Failed { url, error } => {
+            assert_eq!(url, test_url);
+            assert!(!error.is_empty());
+        }
+        other => panic!("Expected Failed as last event, got {:?}", other),
+    }
+}
+

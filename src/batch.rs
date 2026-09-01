@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -8,9 +8,12 @@ use serde::{Deserialize, Serialize};
 use crate::classifier::SmartClassifier;
 use crate::downloader::Downloader;
 use crate::error::{DlpError, Result};
+#[allow(unused_imports)]
+use crate::event::{DownloadEvent, EventDispatcher, EventListener};
 use crate::lyrics::LyricsFetcher;
 use crate::preset::{Preset, PresetManager};
-use crate::scheduler::ScheduledPlan;
+#[allow(unused_imports)]
+use crate::scheduler::{PlatformCategory, ScheduledPlan, TaskPriority, TaskScheduler, TaskState};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ItemStatus {
@@ -303,7 +306,7 @@ fn run_batch_sequential(
     Ok(report)
 }
 
-fn run_batch_parallel(
+pub fn run_batch_parallel(
     urls: &[String],
     preset_manager: &PresetManager,
     explicit_preset: Option<&str>,
@@ -314,6 +317,32 @@ fn run_batch_parallel(
     checkpoint_path: &Path,
     concurrency: usize,
 ) -> Result<BatchReport> {
+    run_batch_parallel_with_dispatcher(
+        urls,
+        preset_manager,
+        explicit_preset,
+        quality_override,
+        lyrics_override,
+        output_dir,
+        resume,
+        checkpoint_path,
+        concurrency,
+        None,
+    )
+}
+
+pub fn run_batch_parallel_with_dispatcher(
+    urls: &[String],
+    preset_manager: &PresetManager,
+    explicit_preset: Option<&str>,
+    quality_override: Option<&str>,
+    lyrics_override: Option<bool>,
+    output_dir: Option<&str>,
+    resume: bool,
+    checkpoint_path: &Path,
+    concurrency: usize,
+    dispatcher: Option<Arc<EventDispatcher>>,
+) -> Result<BatchReport> {
     let total = urls.len();
     let num_workers = concurrency.min(total).max(1);
 
@@ -323,9 +352,7 @@ fn run_batch_parallel(
     }
     println!();
 
-    let queue: Arc<Mutex<VecDeque<(usize, String)>>> = Arc::new(Mutex::new(
-        urls.iter().cloned().enumerate().map(|(idx, u)| (idx + 1, u)).collect(),
-    ));
+    let scheduler = Arc::new(Mutex::new(TaskScheduler::from_urls(urls, num_workers)));
 
     let checkpoint = Arc::new(Mutex::new(if resume {
         BatchCheckpoint::load_from_path(checkpoint_path)
@@ -352,7 +379,7 @@ fn run_batch_parallel(
     let mut handles = Vec::new();
 
     for worker_id in 0..num_workers {
-        let q = Arc::clone(&queue);
+        let scheduler = Arc::clone(&scheduler);
         let cp = Arc::clone(&checkpoint);
         let rep = Arc::clone(&report);
         let pm = Arc::clone(&preset_mgr);
@@ -361,18 +388,32 @@ fn run_batch_parallel(
         let q_ov = quality_override.clone();
         let out_d = output_dir.clone();
         let tiktok_throttle = Arc::clone(&last_tiktok_time);
+        let disp = dispatcher.clone();
 
         let handle = thread::spawn(move || {
             loop {
-                let next_task = {
-                    let mut lock = q.lock().unwrap();
-                    lock.pop_front()
+                let (task, is_finished) = {
+                    let mut sched = scheduler.lock().unwrap();
+                    let finished = sched.is_finished();
+                    let next = sched.next_runnable();
+                    (next, finished)
                 };
 
-                let (item_num, url) = match next_task {
-                    Some(task) => task,
-                    None => break,
+                if is_finished {
+                    break;
+                }
+
+                let task = match task {
+                    Some(t) => t,
+                    None => {
+                        // Workers wait briefly if other workers are holding platform concurrency slots
+                        thread::sleep(Duration::from_millis(50));
+                        continue;
+                    }
                 };
+
+                let item_num = task.id;
+                let url = task.url.clone();
 
                 // 1. Check resume skip
                 if resume {
@@ -384,6 +425,10 @@ fn run_batch_parallel(
                         println!("[Worker {}] 📦 [{}/{}] ⏭️  Skipping (Already Downloaded): {}", worker_id + 1, item_num, total, url);
                         let mut rep_lock = rep.lock().unwrap();
                         rep_lock.skipped += 1;
+                        {
+                            let mut sched = scheduler.lock().unwrap();
+                            sched.complete_task(task.id);
+                        }
                         continue;
                     }
                 }
@@ -421,6 +466,18 @@ fn run_batch_parallel(
 
                         let mut rep_lock = rep.lock().unwrap();
                         rep_lock.succeeded += 1;
+
+                        {
+                            let mut sched = scheduler.lock().unwrap();
+                            sched.complete_task(task.id);
+                        }
+
+                        if let Some(ref d) = disp {
+                            d.dispatch(&DownloadEvent::Completed {
+                                url: url.clone(),
+                                output_path: title,
+                            });
+                        }
                     }
                     Err(e) => {
                         let err_msg = format!("{e}");
@@ -430,7 +487,19 @@ fn run_batch_parallel(
                         let _ = cp_lock.save_to_path(&cp_file);
 
                         let mut rep_lock = rep.lock().unwrap();
-                        rep_lock.failed.push((url, err_msg));
+                        rep_lock.failed.push((url.clone(), err_msg.clone()));
+
+                        {
+                            let mut sched = scheduler.lock().unwrap();
+                            sched.fail_task(task.id, false, 0);
+                        }
+
+                        if let Some(ref d) = disp {
+                            d.dispatch(&DownloadEvent::Failed {
+                                url: url.clone(),
+                                error: err_msg,
+                            });
+                        }
                     }
                 }
             }
@@ -459,6 +528,32 @@ pub fn run_batch(
     checkpoint_path: Option<&Path>,
     concurrency: usize,
 ) -> Result<BatchReport> {
+    run_batch_with_dispatcher(
+        urls,
+        preset_manager,
+        explicit_preset,
+        quality_override,
+        lyrics_override,
+        output_dir,
+        resume,
+        checkpoint_path,
+        concurrency,
+        None,
+    )
+}
+
+pub fn run_batch_with_dispatcher(
+    urls: &[String],
+    preset_manager: &PresetManager,
+    explicit_preset: Option<&str>,
+    quality_override: Option<&str>,
+    lyrics_override: Option<bool>,
+    output_dir: Option<&str>,
+    resume: bool,
+    checkpoint_path: Option<&Path>,
+    concurrency: usize,
+    dispatcher: Option<Arc<EventDispatcher>>,
+) -> Result<BatchReport> {
     if urls.is_empty() {
         println!("⚠️  Batch queue is empty. No URLs to download.");
         return Ok(BatchReport::default());
@@ -474,7 +569,7 @@ pub fn run_batch(
     let resolved_cp_path = checkpoint_path.unwrap_or(&default_cp_path);
 
     if effective_concurrency > 1 {
-        run_batch_parallel(
+        run_batch_parallel_with_dispatcher(
             urls,
             preset_manager,
             explicit_preset,
@@ -484,6 +579,7 @@ pub fn run_batch(
             resume,
             resolved_cp_path,
             effective_concurrency,
+            dispatcher,
         )
     } else {
         run_batch_sequential(
