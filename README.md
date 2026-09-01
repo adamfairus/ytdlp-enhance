@@ -4,8 +4,13 @@
 
 ---
 
-## ✨ Fitur Utama (v1.6.0 Stable Release)
+## ✨ Fitur Utama (v1.7.0 Stable Release)
 
+- **🧪 Comprehensive Verification Matrix & Regression Protection (v1.7)**:
+  - 17 test suites dengan **53 unit, integration, snapshot, dan regression tests** (100% Green).
+  - Golden regression tests untuk URL edge cases (YouTube Shorts, Live, Music, embed, TikTok desktop & shortlink, URL queries).
+  - Terminal snapshot testing untuk memastikan stabilitas visual Decision Trace, Diagnostic Report, dan Batch Scheduler.
+  - Property-based testing untuk penegakan batas resolusi, orientasi video, dan kebijakan preset.
 - **🛠️ Developer Experience (DX) & Configuration Management (v1.6)**:
   - Subcommand `dlp config [show | path | init | set <KEY> <VALUE>]` untuk inspeksi dan modifikasi konfigurasi global `~/.config/dlp/config.toml` tanpa perlu membuka teks editor manual.
   - Subcommand `dlp debug <URL> [--raw]` untuk membedah data mentah metadata JSON dari extractor (sangat cocok untuk debugging atau di-*pipe* ke `jq`).
@@ -100,4 +105,4 @@ Jalankan seluruh test suite dengan:
 ```bash
 cargo test
 ```
-Semua 46 pengujian unit dan integrasi terverifikasi 100% *green*.
+Semua 53 pengujian unit, integrasi, snapshot, dan regression terverifikasi 100% *green*.

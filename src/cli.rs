@@ -5,7 +5,7 @@ use clap_complete::Shell;
 #[command(
     name = "dlp",
     author = "Adam F",
-    version = "1.6.0",
+    version = "1.7.0",
     about = "Smart orchestration and CLI wrapper for yt-dlp and ffmpeg",
     long_about = "dlp is an intelligent CLI orchestration layer above yt-dlp and ffmpeg that inspects metadata, detects video orientation, and applies customizable presets and batch downloads."
 )]
