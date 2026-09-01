@@ -167,10 +167,12 @@ impl YtDlpEngine {
                             let from_str = match &current_quality {
                                 QualityPreference::Best => "best".to_string(),
                                 QualityPreference::SpecificHeight(h) => format!("{}p", h),
+                                QualityPreference::VerticalResolution(w) => format!("{}p (vertical)", w),
                             };
                             let to_str = match &next_quality {
                                 QualityPreference::Best => "best".to_string(),
                                 QualityPreference::SpecificHeight(h) => format!("{}p", h),
+                                QualityPreference::VerticalResolution(w) => format!("{}p (vertical)", w),
                             };
                             if let Some(d) = dispatcher {
                                 d.dispatch(&DownloadEvent::Fallback {
@@ -182,6 +184,7 @@ impl YtDlpEngine {
                             let fallback_desc = match &next_quality {
                                 QualityPreference::Best => "best available stream".to_string(),
                                 QualityPreference::SpecificHeight(h) => format!("{}p resolution", h),
+                                QualityPreference::VerticalResolution(w) => format!("{}p vertical resolution", w),
                             };
                             let report = DiagnosticReport::new(
                                 category,

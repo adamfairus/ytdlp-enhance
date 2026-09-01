@@ -204,4 +204,28 @@ date: 2026-04-11
     assert_eq!(urls[3], "https://youtu.be/video4");
 }
 
+#[test]
+fn test_batch_cli_hq_and_vq_args() {
+    use clap::Parser;
+    use dlp::cli::{Cli, Commands};
+
+    let cli = Cli::parse_from(&[
+        "dlp",
+        "batch",
+        "urls.txt",
+        "--hq",
+        "1440p",
+        "--vq",
+        "1080p",
+    ]);
+
+    if let Some(Commands::Batch(b)) = cli.command {
+        assert_eq!(b.hq.as_deref(), Some("1440p"));
+        assert_eq!(b.vq.as_deref(), Some("1080p"));
+    } else {
+        panic!("Expected Commands::Batch");
+    }
+}
+
+
 

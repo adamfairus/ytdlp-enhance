@@ -187,11 +187,16 @@ pub fn run() -> Result<()> {
         let cp_path = batch::determine_checkpoint_path(&b.inputs, effective_output_dir);
         let effective_concurrency = b.concurrency.unwrap_or(app_config.download.concurrency);
 
-        batch::run_batch_with_dispatcher(
+        let effective_hq = b.hq.as_deref().or(args.hq.as_deref());
+        let effective_vq = b.vq.as_deref().or(args.vq.as_deref());
+
+        batch::run_batch_extended(
             &urls,
             &preset_manager,
             explicit_preset.as_deref(),
             b.quality.as_deref(),
+            effective_hq,
+            effective_vq,
             b.lyrics,
             effective_output_dir,
             b.resume,
@@ -337,8 +342,15 @@ pub fn run() -> Result<()> {
         return Ok(());
     }
 
-    // 10. Compute Effective Quality with Orientation Policy
-    let effective_quality = preset.effective_quality_preference(quality_override, orientation)?;
+    // 10. Compute Effective Quality with Orientation Policy & Overrides
+    let target_quality = match orientation {
+        crate::orientation::Orientation::Horizontal => args.hq.as_deref().or(quality_override),
+        crate::orientation::Orientation::Vertical => args.vq.as_deref().or(quality_override),
+        crate::orientation::Orientation::Square => quality_override,
+    };
+    let effective_quality = preset
+        .effective_quality_preference(target_quality, orientation)?
+        .for_orientation(orientation);
 
     // If explain flag is set, display detailed Decision Trace and exit
     if explain {
@@ -364,6 +376,9 @@ pub fn run() -> Result<()> {
                 } else {
                     format!("{}p", h)
                 }
+            }
+            QualityPreference::VerticalResolution(w) => {
+                format!("{}p (Vertical)", w)
             }
         };
         println!("🎯 Target Quality : {}\n", chosen_display);

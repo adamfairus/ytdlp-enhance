@@ -53,3 +53,29 @@ fn test_preset_policy_enforcement_matrix() {
         .unwrap();
     assert_eq!(sq_default, QualityPreference::Best);
 }
+
+#[test]
+fn test_orientation_quality_format_selectors() {
+    // 1. Horizontal quality 1440p
+    let horiz_pref = QualityPreference::SpecificHeight(1440).for_orientation(Orientation::Horizontal);
+    assert_eq!(horiz_pref, QualityPreference::SpecificHeight(1440));
+    let horiz_selector = horiz_pref.to_format_selector();
+    assert_eq!(
+        horiz_selector,
+        "bestvideo[height<=1440]+bestaudio/best[height<=1440]/best"
+    );
+
+    // 2. Vertical quality 1080p
+    let vert_pref = QualityPreference::SpecificHeight(1080).for_orientation(Orientation::Vertical);
+    assert_eq!(vert_pref, QualityPreference::VerticalResolution(1080));
+    let vert_selector = vert_pref.to_format_selector();
+    assert_eq!(
+        vert_selector,
+        "bestvideo[width<=1080]+bestaudio/best[width<=1080]/best"
+    );
+
+    // 3. Fallback step for VerticalResolution
+    let step = vert_pref.fallback_step();
+    assert_eq!(step, Some(QualityPreference::VerticalResolution(720)));
+}
+

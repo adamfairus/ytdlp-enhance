@@ -41,6 +41,14 @@ pub struct Cli {
     #[arg(short = 'o', long = "output-dir")]
     pub output_dir: Option<String>,
 
+    /// Override quality for horizontal videos (e.g. '1440p')
+    #[arg(long = "hq", aliases = ["quality-horizontal", "horizontal-quality"], help = "Override quality for horizontal videos (e.g. '1440p')")]
+    pub hq: Option<String>,
+
+    /// Override quality for vertical videos (e.g. '1080p')
+    #[arg(long = "vq", aliases = ["quality-vertical", "vertical-quality"], help = "Override quality for vertical videos (e.g. '1080p')")]
+    pub vq: Option<String>,
+
     /// Bypass local metadata cache
     #[arg(long, help = "Bypass local metadata cache")]
     pub no_cache: bool,
@@ -116,6 +124,14 @@ pub struct DownloadArgs {
     #[arg(short = 'Q', long = "quality")]
     pub quality: Option<String>,
 
+    /// Override quality for horizontal videos (e.g. '1440p')
+    #[arg(long = "hq", aliases = ["quality-horizontal", "horizontal-quality"], help = "Override quality for horizontal videos (e.g. '1440p')")]
+    pub hq: Option<String>,
+
+    /// Override quality for vertical videos (e.g. '1080p')
+    #[arg(long = "vq", aliases = ["quality-vertical", "vertical-quality"], help = "Override quality for vertical videos (e.g. '1080p')")]
+    pub vq: Option<String>,
+
     /// Enable or disable lyrics/subtitles fetching
     #[arg(long = "lyrics")]
     pub lyrics: Option<bool>,
@@ -162,6 +178,14 @@ pub struct BatchArgs {
     /// Override quality tier or resolution
     #[arg(short = 'Q', long = "quality")]
     pub quality: Option<String>,
+
+    /// Override quality for horizontal videos (e.g. '1440p')
+    #[arg(long = "hq", aliases = ["quality-horizontal", "horizontal-quality"], help = "Override quality for horizontal videos (e.g. '1440p')")]
+    pub hq: Option<String>,
+
+    /// Override quality for vertical videos (e.g. '1080p')
+    #[arg(long = "vq", aliases = ["quality-vertical", "vertical-quality"], help = "Override quality for vertical videos (e.g. '1080p')")]
+    pub vq: Option<String>,
 
     /// Enable or disable lyrics for the batch
     #[arg(long = "lyrics")]

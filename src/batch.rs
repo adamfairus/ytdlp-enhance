@@ -212,6 +212,8 @@ fn process_single_item(
     preset_manager: &PresetManager,
     explicit_preset: Option<&str>,
     quality_override: Option<&str>,
+    hq_override: Option<&str>,
+    vq_override: Option<&str>,
     lyrics_override: Option<bool>,
     output_dir: Option<&str>,
     worker_label: Option<usize>,
@@ -242,9 +244,16 @@ fn process_single_item(
         preset.write_lyrics = want_lyrics;
     }
 
-    // 3. Resolve quality
+    // 3. Resolve quality with orientation-specific overrides
     let orientation = meta.orientation();
-    let effective_quality = preset.effective_quality_preference(quality_override, orientation)?;
+    let target_quality = match orientation {
+        crate::orientation::Orientation::Horizontal => hq_override.or(quality_override),
+        crate::orientation::Orientation::Vertical => vq_override.or(quality_override),
+        crate::orientation::Orientation::Square => quality_override,
+    };
+    let effective_quality = preset
+        .effective_quality_preference(target_quality, orientation)?
+        .for_orientation(orientation);
 
     // 4. Download
     println!("{}⬇️  Downloading: {}", prefix, meta.title);
@@ -264,6 +273,8 @@ fn run_batch_sequential(
     preset_manager: &PresetManager,
     explicit_preset: Option<&str>,
     quality_override: Option<&str>,
+    hq_override: Option<&str>,
+    vq_override: Option<&str>,
     lyrics_override: Option<bool>,
     output_dir: Option<&str>,
     resume: bool,
@@ -315,6 +326,8 @@ fn run_batch_sequential(
             preset_manager,
             explicit_preset,
             quality_override,
+            hq_override,
+            vq_override,
             lyrics_override,
             output_dir,
             None,
@@ -339,6 +352,7 @@ fn run_batch_sequential(
     Ok(report)
 }
 
+
 pub fn run_batch_parallel(
     urls: &[String],
     preset_manager: &PresetManager,
@@ -350,11 +364,13 @@ pub fn run_batch_parallel(
     checkpoint_path: &Path,
     concurrency: usize,
 ) -> Result<BatchReport> {
-    run_batch_parallel_with_dispatcher(
+    run_batch_parallel_extended(
         urls,
         preset_manager,
         explicit_preset,
         quality_override,
+        None,
+        None,
         lyrics_override,
         output_dir,
         resume,
@@ -369,6 +385,36 @@ pub fn run_batch_parallel_with_dispatcher(
     preset_manager: &PresetManager,
     explicit_preset: Option<&str>,
     quality_override: Option<&str>,
+    lyrics_override: Option<bool>,
+    output_dir: Option<&str>,
+    resume: bool,
+    checkpoint_path: &Path,
+    concurrency: usize,
+    dispatcher: Option<Arc<EventDispatcher>>,
+) -> Result<BatchReport> {
+    run_batch_parallel_extended(
+        urls,
+        preset_manager,
+        explicit_preset,
+        quality_override,
+        None,
+        None,
+        lyrics_override,
+        output_dir,
+        resume,
+        checkpoint_path,
+        concurrency,
+        dispatcher,
+    )
+}
+
+pub fn run_batch_parallel_extended(
+    urls: &[String],
+    preset_manager: &PresetManager,
+    explicit_preset: Option<&str>,
+    quality_override: Option<&str>,
+    hq_override: Option<&str>,
+    vq_override: Option<&str>,
     lyrics_override: Option<bool>,
     output_dir: Option<&str>,
     resume: bool,
@@ -403,6 +449,8 @@ pub fn run_batch_parallel_with_dispatcher(
     let checkpoint_file = checkpoint_path.to_path_buf();
     let explicit_preset = explicit_preset.map(|s| s.to_string());
     let quality_override = quality_override.map(|s| s.to_string());
+    let hq_override = hq_override.map(|s| s.to_string());
+    let vq_override = vq_override.map(|s| s.to_string());
     let output_dir = output_dir.map(|s| s.to_string());
     let preset_mgr = Arc::new(preset_manager.clone());
 
@@ -419,6 +467,8 @@ pub fn run_batch_parallel_with_dispatcher(
         let cp_file = checkpoint_file.clone();
         let exp_p = explicit_preset.clone();
         let q_ov = quality_override.clone();
+        let hq_ov = hq_override.clone();
+        let vq_ov = vq_override.clone();
         let out_d = output_dir.clone();
         let rate_limiter = Arc::clone(&rate_limiter);
         let disp = dispatcher.clone();
@@ -471,12 +521,14 @@ pub fn run_batch_parallel_with_dispatcher(
                 // 2. Throttle & rate-limit request based on platform category
                 rate_limiter.acquire_permit(task.platform);
 
-                // 3. Process single item
+                // 3. Process single item with orientation overrides
                 let res = process_single_item(
                     &url,
                     &pm,
                     exp_p.as_deref(),
                     q_ov.as_deref(),
+                    hq_ov.as_deref(),
+                    vq_ov.as_deref(),
                     lyrics_override,
                     out_d.as_deref(),
                     Some(worker_id + 1),
@@ -579,6 +631,36 @@ pub fn run_batch_with_dispatcher(
     concurrency: usize,
     dispatcher: Option<Arc<EventDispatcher>>,
 ) -> Result<BatchReport> {
+    run_batch_extended(
+        urls,
+        preset_manager,
+        explicit_preset,
+        quality_override,
+        None,
+        None,
+        lyrics_override,
+        output_dir,
+        resume,
+        checkpoint_path,
+        concurrency,
+        dispatcher,
+    )
+}
+
+pub fn run_batch_extended(
+    urls: &[String],
+    preset_manager: &PresetManager,
+    explicit_preset: Option<&str>,
+    quality_override: Option<&str>,
+    hq_override: Option<&str>,
+    vq_override: Option<&str>,
+    lyrics_override: Option<bool>,
+    output_dir: Option<&str>,
+    resume: bool,
+    checkpoint_path: Option<&Path>,
+    concurrency: usize,
+    dispatcher: Option<Arc<EventDispatcher>>,
+) -> Result<BatchReport> {
     if urls.is_empty() {
         println!("⚠️  Batch queue is empty. No URLs to download.");
         return Ok(BatchReport::default());
@@ -594,11 +676,13 @@ pub fn run_batch_with_dispatcher(
     let resolved_cp_path = checkpoint_path.unwrap_or(&default_cp_path);
 
     if effective_concurrency > 1 {
-        run_batch_parallel_with_dispatcher(
+        run_batch_parallel_extended(
             urls,
             preset_manager,
             explicit_preset,
             quality_override,
+            hq_override,
+            vq_override,
             lyrics_override,
             output_dir,
             resume,
@@ -612,6 +696,8 @@ pub fn run_batch_with_dispatcher(
             preset_manager,
             explicit_preset,
             quality_override,
+            hq_override,
+            vq_override,
             lyrics_override,
             output_dir,
             resume,

@@ -4,6 +4,7 @@ use crate::error::{DlpError, Result};
 pub enum QualityPreference {
     Best,
     SpecificHeight(u32),
+    VerticalResolution(u32), // Width <= u32 for portrait/vertical video (e.g. 1080 for 1080x1920)
 }
 
 impl QualityPreference {
@@ -32,12 +33,25 @@ impl QualityPreference {
         }
     }
 
+    /// Adapts quality preference to video orientation (mapping vertical heights to width limits e.g. 1080 -> 1080x1920)
+    pub fn for_orientation(&self, orientation: crate::orientation::Orientation) -> Self {
+        match (orientation, self) {
+            (crate::orientation::Orientation::Vertical, QualityPreference::SpecificHeight(h)) => {
+                QualityPreference::VerticalResolution(*h)
+            }
+            _ => self.clone(),
+        }
+    }
+
     /// Generates yt-dlp format selector string.
     pub fn to_format_selector(&self) -> String {
         match self {
             QualityPreference::Best => "bestvideo+bestaudio/best".to_string(),
             QualityPreference::SpecificHeight(h) => {
                 format!("bestvideo[height<={h}]+bestaudio/best[height<={h}]/best")
+            }
+            QualityPreference::VerticalResolution(w) => {
+                format!("bestvideo[width<={w}]+bestaudio/best[width<={w}]/best")
             }
         }
     }
@@ -49,7 +63,7 @@ impl QualityPreference {
         }
         match self {
             QualityPreference::Best => available.first().copied(),
-            QualityPreference::SpecificHeight(target) => {
+            QualityPreference::SpecificHeight(target) | QualityPreference::VerticalResolution(target) => {
                 // Find highest resolution <= target, or fallback to lowest available if all > target
                 available
                     .iter()
@@ -69,6 +83,11 @@ impl QualityPreference {
             QualityPreference::SpecificHeight(h) if *h > 720 => Some(QualityPreference::SpecificHeight(720)),
             QualityPreference::SpecificHeight(h) if *h > 480 => Some(QualityPreference::SpecificHeight(480)),
             QualityPreference::SpecificHeight(_) => Some(QualityPreference::Best),
+            QualityPreference::VerticalResolution(w) if *w > 1440 => Some(QualityPreference::VerticalResolution(1440)),
+            QualityPreference::VerticalResolution(w) if *w > 1080 => Some(QualityPreference::VerticalResolution(1080)),
+            QualityPreference::VerticalResolution(w) if *w > 720 => Some(QualityPreference::VerticalResolution(720)),
+            QualityPreference::VerticalResolution(w) if *w > 480 => Some(QualityPreference::VerticalResolution(480)),
+            QualityPreference::VerticalResolution(_) => Some(QualityPreference::Best),
             QualityPreference::Best => None,
         }
     }
