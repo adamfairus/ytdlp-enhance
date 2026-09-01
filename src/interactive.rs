@@ -232,6 +232,7 @@ fn run_interactive_batch(preset_manager: &PresetManager, config: &Config) -> Res
             config.download_dir.as_deref(),
             false,
             None,
+            config.download.concurrency,
         )?;
 
         let _ = Text::new("Press Enter to return to main menu...").prompt();

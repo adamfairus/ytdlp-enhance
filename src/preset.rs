@@ -101,6 +101,7 @@ impl Preset {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct PresetManager {
     presets: HashMap<String, Preset>,
 }

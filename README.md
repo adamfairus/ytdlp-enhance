@@ -4,9 +4,10 @@
 
 ---
 
-## ✨ Fitur Utama (v1.1.0 Stable Release)
+## ✨ Fitur Utama (v1.2.0 Stable Release)
 
-- **⚡ Fast Native Binary**: Dibangun dengan Rust murni untuk performa tinggi, efisiensi memori, dan nol ketergantungan script runtime Python.
+- **⚡ Controlled Parallel Download Queue (v1.2)**: Mengunduh puluhan media secara paralel dengan batas konkurensi terkelola (`dlp batch urls.txt -c 3` atau via `config.toml` `concurrency = 3`).
+- **📋 Smart Queue Scheduler (v1.2)**: Pra-analisis cerdas antrean URL sebelum dieksekusi, mengelompokkan tugas per platform (YouTube, TikTok, Music) dan menegakkan perlindungan *rate-limit* otomatis untuk mencegah pemblokiran IP.
 - **🛡️ Smart Self-Healing Error Recovery (v1.1)**: Deteksi cerdas kegagalan download (`Transient`, `FormatUnavailable`, `BotBlockOrExtractor`, `FFmpegProcessing`, `Permanent`):
   - Auto-retry dengan *exponential backoff* pada gangguan jaringan sementara.
   - *Format Stepping Fallback*: Otomatis menurunkan resolusi (4K → 1440p → 1080p → 720p → Best) jika format requested tidak tersedia.
@@ -48,13 +49,16 @@ dlp "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 dlp
 ```
 
-### 3. Smart Batch Download & Resume Checkpoint
+### 3. Smart Batch Download (Parallel Queue & Resume Checkpoint)
 ```bash
 # Otomatis mengklasifikasikan dan mengunduh tiap URL di urls.txt:
 dlp batch urls.txt
 
-# Melanjutkan batch yang terputus (skip yang sukses, retry yang tertunda/gagal):
-dlp batch urls.txt --resume
+# Unduh paralel dengan 3 worker threads (controlled concurrency):
+dlp batch urls.txt -c 3
+
+# Melanjutkan batch yang terputus dengan 3 worker threads (skip yang sukses, retry yang tertunda):
+dlp batch urls.txt --resume -c 3
 ```
 
 ### 4. Diagnostik Sistem (Doctor)
@@ -82,4 +86,4 @@ Jalankan seluruh test suite dengan:
 ```bash
 cargo test
 ```
-Semua 29 pengujian unit dan integrasi terverifikasi 100% *green*.
+Semua 34 pengujian unit dan integrasi terverifikasi 100% *green*.

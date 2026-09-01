@@ -2,10 +2,39 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadPolicy {
+    #[serde(default = "default_concurrency")]
+    pub concurrency: usize,
+    #[serde(default = "default_retry_delay")]
+    pub retry_delay_sec: u64,
+    pub rate_limit: Option<String>,
+}
+
+fn default_concurrency() -> usize {
+    1
+}
+
+fn default_retry_delay() -> u64 {
+    2
+}
+
+impl Default for DownloadPolicy {
+    fn default() -> Self {
+        Self {
+            concurrency: default_concurrency(),
+            retry_delay_sec: default_retry_delay(),
+            rate_limit: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default = "default_preset")]
     pub default_preset: String,
     pub download_dir: Option<String>,
+    #[serde(default)]
+    pub download: DownloadPolicy,
 }
 
 fn default_preset() -> String {
@@ -17,6 +46,7 @@ impl Default for Config {
         Self {
             default_preset: default_preset(),
             download_dir: None,
+            download: DownloadPolicy::default(),
         }
     }
 }

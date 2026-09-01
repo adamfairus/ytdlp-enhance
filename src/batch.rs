@@ -1,13 +1,16 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime};
 use serde::{Deserialize, Serialize};
 use crate::classifier::SmartClassifier;
 use crate::downloader::Downloader;
 use crate::error::{DlpError, Result};
 use crate::lyrics::LyricsFetcher;
 use crate::preset::{Preset, PresetManager};
+use crate::scheduler::ScheduledPlan;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ItemStatus {
@@ -168,7 +171,59 @@ pub fn resolve_inputs_to_urls(inputs: &[String]) -> Result<Vec<String>> {
     Ok(all_urls)
 }
 
-pub fn run_batch(
+fn process_single_item(
+    url: &str,
+    preset_manager: &PresetManager,
+    explicit_preset: Option<&str>,
+    quality_override: Option<&str>,
+    lyrics_override: Option<bool>,
+    output_dir: Option<&str>,
+    worker_label: Option<usize>,
+) -> Result<String> {
+    let prefix = match worker_label {
+        Some(w) => format!("[Worker {}] ", w),
+        None => "".to_string(),
+    };
+
+    // 1. Fetch metadata
+    println!("{}🔍 Fetching metadata for: {}", prefix, url);
+    let meta = Downloader::fetch_metadata(url)?;
+
+    // 2. Resolve Preset
+    let preset_name = if let Some(p) = explicit_preset {
+        p.to_string()
+    } else {
+        let detected = SmartClassifier::classify(url, &meta);
+        detected.default_preset_name().to_string()
+    };
+
+    let mut preset: Preset = preset_manager
+        .get(&preset_name)
+        .ok_or_else(|| DlpError::PresetNotFound(preset_name.clone()))?
+        .clone();
+
+    if let Some(want_lyrics) = lyrics_override {
+        preset.write_lyrics = want_lyrics;
+    }
+
+    // 3. Resolve quality
+    let orientation = meta.orientation();
+    let effective_quality = preset.effective_quality_preference(quality_override, orientation)?;
+
+    // 4. Download
+    println!("{}⬇️  Downloading: {}", prefix, meta.title);
+    Downloader::download(url, &preset, &effective_quality, output_dir)?;
+
+    // 5. Lyrics sync for music
+    if preset.write_lyrics {
+        let base_dir = output_dir.map(Path::new).unwrap_or_else(|| Path::new("."));
+        LyricsFetcher::sync_lyrics_for_directory(base_dir, meta.uploader.as_deref());
+    }
+
+    Ok(meta.title)
+}
+
+fn run_batch_sequential(
     urls: &[String],
     preset_manager: &PresetManager,
     explicit_preset: Option<&str>,
@@ -176,21 +231,11 @@ pub fn run_batch(
     lyrics_override: Option<bool>,
     output_dir: Option<&str>,
     resume: bool,
-    checkpoint_path: Option<&Path>,
+    checkpoint_path: &Path,
 ) -> Result<BatchReport> {
-    if urls.is_empty() {
-        println!("⚠️  Batch queue is empty. No URLs to download.");
-        return Ok(BatchReport::default());
-    }
-
-    Downloader::verify_dependencies()?;
-
-    let default_cp_path = PathBuf::from(".dlp_checkpoint.json");
-    let resolved_cp_path = checkpoint_path.unwrap_or(&default_cp_path);
-
     let mut checkpoint = if resume {
-        let loaded = BatchCheckpoint::load_from_path(resolved_cp_path);
-        println!("💾 Loaded checkpoint from '{}' (Resumed mode)", resolved_cp_path.display());
+        let loaded = BatchCheckpoint::load_from_path(checkpoint_path);
+        println!("💾 Loaded checkpoint from '{}' (Resumed mode)", checkpoint_path.display());
         loaded
     } else {
         BatchCheckpoint::new()
@@ -205,7 +250,6 @@ pub fn run_batch(
     };
 
     let mode_desc = explicit_preset.unwrap_or("Auto-Detect per Item");
-    println!("\n🚀 Starting smart batch processing for {} media items...", total);
     println!("⚙️  Batch Strategy: {}", mode_desc);
     if resume {
         println!("🔄 Mode          : Resume / Checkpoint Enabled");
@@ -215,7 +259,6 @@ pub fn run_batch(
     for (index, url) in urls.iter().enumerate() {
         let item_num = index + 1;
 
-        // Check if item was previously completed when resuming
         if resume && checkpoint.is_completed(url) {
             let title = match checkpoint.get_status(url) {
                 Some(ItemStatus::Completed { title, .. }) => title.as_str(),
@@ -231,88 +274,26 @@ pub fn run_batch(
         println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         println!("📦 [{}/{}] Processing: {}", item_num, total, url);
 
-        // 1. Fetch metadata
-        let meta = match Downloader::fetch_metadata(url) {
-            Ok(m) => m,
-            Err(e) => {
-                let err_msg = format!("Metadata error: {e}");
-                eprintln!("❌ Failed to inspect metadata: {e}");
-                checkpoint.mark_failed(url, &err_msg);
-                let _ = checkpoint.save_to_path(resolved_cp_path);
-                report.failed.push((url.clone(), err_msg));
-                continue;
-            }
-        };
-
-        // 2. Resolve Preset (Explicit or Dynamic Smart Classification)
-        let preset_name = if let Some(p) = explicit_preset {
-            p.to_string()
-        } else {
-            let detected = SmartClassifier::classify(url, &meta);
-            println!("🤖 Auto-Classified: {}", detected.display_label());
-            detected.default_preset_name().to_string()
-        };
-
-        let mut preset: Preset = match preset_manager.get(&preset_name) {
-            Some(p) => p.clone(),
-            None => {
-                let err_msg = format!("Preset '{}' not found", preset_name);
-                checkpoint.mark_failed(url, &err_msg);
-                let _ = checkpoint.save_to_path(resolved_cp_path);
-                report.failed.push((url.clone(), err_msg));
-                continue;
-            }
-        };
-
-        if let Some(want_lyrics) = lyrics_override {
-            preset.write_lyrics = want_lyrics;
-        }
-
-        println!("🎬 Title       : {}", meta.title);
-        println!("⏱️  Duration    : {}", meta.format_duration());
-        println!("📐 Orientation : {}", meta.orientation().display_name());
-        println!("⚙️  Active Preset: {} [{}]", preset.name, if preset.extract_audio { "Audio" } else { "Video" });
-
-        // 3. Resolve quality
-        let orientation = meta.orientation();
-        let effective_quality = match preset.effective_quality_preference(quality_override, orientation) {
-            Ok(q) => q,
-            Err(e) => {
-                let err_msg = format!("Quality resolution error: {e}");
-                checkpoint.mark_failed(url, &err_msg);
-                let _ = checkpoint.save_to_path(resolved_cp_path);
-                report.failed.push((url.clone(), err_msg));
-                continue;
-            }
-        };
-
-        if !preset.extract_audio {
-            let available_res = meta.available_resolutions();
-            if let Some(matched) = effective_quality.select_best_resolution(&available_res) {
-                println!("🎯 Target Quality : {}p", matched);
-            }
-        }
-
-        // 4. Execute download
-        println!("⬇️  Downloading...");
-        match Downloader::download(url, &preset, &effective_quality, output_dir) {
-            Ok(_) => {
-                println!("✅ Finished [{}/{}]", item_num, total);
-                checkpoint.mark_completed(url, &meta.title);
-                let _ = checkpoint.save_to_path(resolved_cp_path);
+        match process_single_item(
+            url,
+            preset_manager,
+            explicit_preset,
+            quality_override,
+            lyrics_override,
+            output_dir,
+            None,
+        ) {
+            Ok(title) => {
+                println!("✅ Finished [{}/{}]: {}", item_num, total, title);
+                checkpoint.mark_completed(url, &title);
+                let _ = checkpoint.save_to_path(checkpoint_path);
                 report.succeeded += 1;
-
-                // Synchronize lyrics for music tracks
-                if preset.write_lyrics {
-                    let base_dir = output_dir.map(Path::new).unwrap_or_else(|| Path::new("."));
-                    LyricsFetcher::sync_lyrics_for_directory(base_dir, meta.uploader.as_deref());
-                }
             }
             Err(e) => {
-                let err_msg = format!("Download error: {e}");
-                eprintln!("❌ Download failed: {e}");
+                let err_msg = format!("{e}");
+                eprintln!("❌ Download failed: {err_msg}");
                 checkpoint.mark_failed(url, &err_msg);
-                let _ = checkpoint.save_to_path(resolved_cp_path);
+                let _ = checkpoint.save_to_path(checkpoint_path);
                 report.failed.push((url.clone(), err_msg));
             }
         }
@@ -320,4 +301,200 @@ pub fn run_batch(
 
     report.print_summary();
     Ok(report)
+}
+
+fn run_batch_parallel(
+    urls: &[String],
+    preset_manager: &PresetManager,
+    explicit_preset: Option<&str>,
+    quality_override: Option<&str>,
+    lyrics_override: Option<bool>,
+    output_dir: Option<&str>,
+    resume: bool,
+    checkpoint_path: &Path,
+    concurrency: usize,
+) -> Result<BatchReport> {
+    let total = urls.len();
+    let num_workers = concurrency.min(total).max(1);
+
+    println!("⚡ Controlled Parallel Queue: {} worker threads active", num_workers);
+    if resume {
+        println!("🔄 Mode                    : Resume / Checkpoint Enabled");
+    }
+    println!();
+
+    let queue: Arc<Mutex<VecDeque<(usize, String)>>> = Arc::new(Mutex::new(
+        urls.iter().cloned().enumerate().map(|(idx, u)| (idx + 1, u)).collect(),
+    ));
+
+    let checkpoint = Arc::new(Mutex::new(if resume {
+        BatchCheckpoint::load_from_path(checkpoint_path)
+    } else {
+        BatchCheckpoint::new()
+    }));
+
+    let report = Arc::new(Mutex::new(BatchReport {
+        total,
+        succeeded: 0,
+        skipped: 0,
+        failed: Vec::new(),
+    }));
+
+    let checkpoint_file = checkpoint_path.to_path_buf();
+    let explicit_preset = explicit_preset.map(|s| s.to_string());
+    let quality_override = quality_override.map(|s| s.to_string());
+    let output_dir = output_dir.map(|s| s.to_string());
+    let preset_mgr = Arc::new(preset_manager.clone());
+
+    // Rate-limit throttle tracker for TikTok (minimum 1.1s spacing)
+    let last_tiktok_time = Arc::new(Mutex::new(Instant::now() - Duration::from_secs(5)));
+
+    let mut handles = Vec::new();
+
+    for worker_id in 0..num_workers {
+        let q = Arc::clone(&queue);
+        let cp = Arc::clone(&checkpoint);
+        let rep = Arc::clone(&report);
+        let pm = Arc::clone(&preset_mgr);
+        let cp_file = checkpoint_file.clone();
+        let exp_p = explicit_preset.clone();
+        let q_ov = quality_override.clone();
+        let out_d = output_dir.clone();
+        let tiktok_throttle = Arc::clone(&last_tiktok_time);
+
+        let handle = thread::spawn(move || {
+            loop {
+                let next_task = {
+                    let mut lock = q.lock().unwrap();
+                    lock.pop_front()
+                };
+
+                let (item_num, url) = match next_task {
+                    Some(task) => task,
+                    None => break,
+                };
+
+                // 1. Check resume skip
+                if resume {
+                    let is_done = {
+                        let lock = cp.lock().unwrap();
+                        lock.is_completed(&url)
+                    };
+                    if is_done {
+                        println!("[Worker {}] 📦 [{}/{}] ⏭️  Skipping (Already Downloaded): {}", worker_id + 1, item_num, total, url);
+                        let mut rep_lock = rep.lock().unwrap();
+                        rep_lock.skipped += 1;
+                        continue;
+                    }
+                }
+
+                println!("[Worker {}] 📦 [{}/{}] Processing: {}", worker_id + 1, item_num, total, url);
+
+                // 2. Throttle TikTok requests if needed to prevent 429
+                if url.to_lowercase().contains("tiktok.com") {
+                    let mut last_t = tiktok_throttle.lock().unwrap();
+                    let elapsed = last_t.elapsed();
+                    if elapsed < Duration::from_millis(1100) {
+                        let sleep_duration = Duration::from_millis(1100) - elapsed;
+                        thread::sleep(sleep_duration);
+                    }
+                    *last_t = Instant::now();
+                }
+
+                // 3. Process single item
+                let res = process_single_item(
+                    &url,
+                    &pm,
+                    exp_p.as_deref(),
+                    q_ov.as_deref(),
+                    lyrics_override,
+                    out_d.as_deref(),
+                    Some(worker_id + 1),
+                );
+
+                match res {
+                    Ok(title) => {
+                        println!("[Worker {}] ✅ Finished [{}/{}]: {}", worker_id + 1, item_num, total, title);
+                        let mut cp_lock = cp.lock().unwrap();
+                        cp_lock.mark_completed(&url, &title);
+                        let _ = cp_lock.save_to_path(&cp_file);
+
+                        let mut rep_lock = rep.lock().unwrap();
+                        rep_lock.succeeded += 1;
+                    }
+                    Err(e) => {
+                        let err_msg = format!("{e}");
+                        eprintln!("[Worker {}] ❌ Failed [{}/{}]: {}", worker_id + 1, item_num, total, err_msg);
+                        let mut cp_lock = cp.lock().unwrap();
+                        cp_lock.mark_failed(&url, &err_msg);
+                        let _ = cp_lock.save_to_path(&cp_file);
+
+                        let mut rep_lock = rep.lock().unwrap();
+                        rep_lock.failed.push((url, err_msg));
+                    }
+                }
+            }
+        });
+
+        handles.push(handle);
+    }
+
+    for h in handles {
+        let _ = h.join();
+    }
+
+    let final_report = report.lock().unwrap().clone();
+    final_report.print_summary();
+    Ok(final_report)
+}
+
+pub fn run_batch(
+    urls: &[String],
+    preset_manager: &PresetManager,
+    explicit_preset: Option<&str>,
+    quality_override: Option<&str>,
+    lyrics_override: Option<bool>,
+    output_dir: Option<&str>,
+    resume: bool,
+    checkpoint_path: Option<&Path>,
+    concurrency: usize,
+) -> Result<BatchReport> {
+    if urls.is_empty() {
+        println!("⚠️  Batch queue is empty. No URLs to download.");
+        return Ok(BatchReport::default());
+    }
+
+    Downloader::verify_dependencies()?;
+
+    let plan = ScheduledPlan::from_urls(urls);
+    let effective_concurrency = concurrency.max(1);
+    plan.print_summary(effective_concurrency);
+
+    let default_cp_path = PathBuf::from(".dlp_checkpoint.json");
+    let resolved_cp_path = checkpoint_path.unwrap_or(&default_cp_path);
+
+    if effective_concurrency > 1 {
+        run_batch_parallel(
+            urls,
+            preset_manager,
+            explicit_preset,
+            quality_override,
+            lyrics_override,
+            output_dir,
+            resume,
+            resolved_cp_path,
+            effective_concurrency,
+        )
+    } else {
+        run_batch_sequential(
+            urls,
+            preset_manager,
+            explicit_preset,
+            quality_override,
+            lyrics_override,
+            output_dir,
+            resume,
+            resolved_cp_path,
+        )
+    }
 }

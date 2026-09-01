@@ -5,7 +5,7 @@ use clap_complete::Shell;
 #[command(
     name = "dlp",
     author = "Adam F",
-    version = "1.1.0",
+    version = "1.2.0",
     about = "Smart orchestration and CLI wrapper for yt-dlp and ffmpeg",
     long_about = "dlp is an intelligent CLI orchestration layer above yt-dlp and ffmpeg that inspects metadata, detects video orientation, and applies customizable presets and batch downloads."
 )]
@@ -110,6 +110,10 @@ pub struct BatchArgs {
     /// Resume batch download from checkpoint, skipping already downloaded items
     #[arg(long = "resume")]
     pub resume: bool,
+
+    /// Number of concurrent downloads for batch mode (default: 1, sequential)
+    #[arg(short = 'c', long = "concurrency")]
+    pub concurrency: Option<usize>,
 }
 
 #[derive(Args, Debug, Clone)]
