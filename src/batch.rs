@@ -147,11 +147,43 @@ pub fn read_urls_from_file(path: &Path) -> Result<Vec<String>> {
     let urls: Vec<String> = content
         .lines()
         .map(|line| line.trim())
-        .filter(|line| !line.is_empty() && !line.starts_with('#') && !line.starts_with("//"))
-        .map(|line| line.to_string())
+        .filter(|line| !line.is_empty() && !line.starts_with('#') && !line.starts_with("//") && !line.starts_with("---"))
+        .filter_map(extract_url_from_line)
         .collect();
 
     Ok(urls)
+}
+
+/// Extracts a clean URL from a line of text, automatically handling Markdown links `[title](url)`,
+/// task list checklists (`- [ ]`, `- [x]`), bullet points (`*`, `-`), and trailing metadata.
+pub fn extract_url_from_line(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // 1. Markdown link format: [Title](https://...)
+    if let Some(open_paren) = trimmed.find("](") {
+        let after_paren = &trimmed[open_paren + 2..];
+        if let Some(close_paren) = after_paren.find(')') {
+            let candidate = &after_paren[..close_paren].trim();
+            if candidate.starts_with("http://") || candidate.starts_with("https://") {
+                return Some(candidate.to_string());
+            }
+        }
+    }
+
+    // 2. Scan for http:// or https:// anywhere in the line
+    if let Some(http_pos) = trimmed.find("https://").or_else(|| trimmed.find("http://")) {
+        let raw_url = &trimmed[http_pos..];
+        let token = raw_url.split_whitespace().next().unwrap_or(raw_url);
+        let clean = token.trim_end_matches(')').trim_end_matches(']').trim_end_matches('>');
+        if clean.starts_with("http://") || clean.starts_with("https://") {
+            return Some(clean.to_string());
+        }
+    }
+
+    None
 }
 
 pub fn resolve_inputs_to_urls(inputs: &[String]) -> Result<Vec<String>> {

@@ -176,3 +176,32 @@ fn test_run_batch_parallel_resume_with_scheduler() {
     assert_eq!(report.succeeded, 0);
 }
 
+#[test]
+fn test_read_urls_from_markdown_file() {
+    let dir = tempdir().unwrap();
+    let md_path = dir.path().join("playlist.md");
+    let markdown_content = r#"---
+title: My Playlist
+date: 2026-04-11
+---
+
+# 🎵 Playlist Title
+
+- [ ] [Track 1](https://youtu.be/video1?si=123) `3840x2160` (03:10)
+- [x] [Track 2](https://youtu.be/video2?si=456) `2160x3840` (04:25)
+* [ ] https://youtu.be/video3
+- Just a plain line https://youtu.be/video4 trailing text
+// Comment line
+# Header
+"#;
+    std::fs::write(&md_path, markdown_content).unwrap();
+
+    let urls = read_urls_from_file(&md_path).unwrap();
+    assert_eq!(urls.len(), 4);
+    assert_eq!(urls[0], "https://youtu.be/video1?si=123");
+    assert_eq!(urls[1], "https://youtu.be/video2?si=456");
+    assert_eq!(urls[2], "https://youtu.be/video3");
+    assert_eq!(urls[3], "https://youtu.be/video4");
+}
+
+
