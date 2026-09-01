@@ -7,6 +7,7 @@ pub mod doctor;
 pub mod downloader;
 pub mod engine;
 pub mod error;
+pub mod event;
 pub mod interactive;
 pub mod lyrics;
 pub mod metadata;
