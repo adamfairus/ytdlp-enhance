@@ -37,7 +37,7 @@ impl VideoFormat {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VideoMetadata {
     pub id: String,
     pub title: String,
@@ -54,6 +54,8 @@ pub struct VideoMetadata {
     pub extractor: Option<String>,
     pub subtitles: Option<HashMap<String, serde_json::Value>>,
     pub automatic_captions: Option<HashMap<String, serde_json::Value>>,
+    #[serde(default)]
+    pub is_live: Option<bool>,
 }
 
 impl VideoMetadata {

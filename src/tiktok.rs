@@ -129,6 +129,7 @@ impl TikTokFallback {
             extractor: Some("tiktok".to_string()),
             subtitles: None,
             automatic_captions: None,
+            is_live: Some(false),
         })
     }
 

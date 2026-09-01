@@ -1,4 +1,5 @@
 pub mod batch;
+pub mod cache;
 pub mod classifier;
 pub mod cli;
 pub mod completions;
@@ -186,8 +187,27 @@ pub fn run() -> Result<()> {
         return Ok(());
     }
 
-    // 6. Resolve single-media execution parameters
-    let (url, explicit_preset, quality_override, lyrics_override, info_only, explain, output_dir) = match &args.command {
+    // 8. Handle 'dlp cache' command
+    if let Some(Commands::Cache { action }) = &args.command {
+        let cache = crate::cache::MetadataCache::new();
+        match action {
+            cli::CacheAction::Clean => {
+                let count = cache.purge_expired();
+                println!("🧹 Cleaned {} expired cache entries.", count);
+            }
+            cli::CacheAction::Purge => {
+                cache.purge_all()?;
+                println!("🗑️  Purged all metadata cache entries.");
+            }
+            cli::CacheAction::Path => {
+                println!("{}", cache.cache_dir().display());
+            }
+        }
+        return Ok(());
+    }
+
+    // 9. Resolve single-media execution parameters
+    let (url, explicit_preset, quality_override, lyrics_override, info_only, explain, output_dir, no_cache) = match &args.command {
         Some(Commands::Video(d)) => (
             d.url.trim().to_string(),
             Some("video".to_string()),
@@ -196,6 +216,7 @@ pub fn run() -> Result<()> {
             d.info_only,
             d.explain,
             d.output_dir.as_deref(),
+            args.no_cache || d.no_cache,
         ),
         Some(Commands::Music(d)) => (
             d.url.trim().to_string(),
@@ -205,6 +226,7 @@ pub fn run() -> Result<()> {
             d.info_only,
             d.explain,
             d.output_dir.as_deref(),
+            args.no_cache || d.no_cache,
         ),
         Some(Commands::Tiktok(d)) => (
             d.url.trim().to_string(),
@@ -214,6 +236,7 @@ pub fn run() -> Result<()> {
             d.info_only,
             d.explain,
             d.output_dir.as_deref(),
+            args.no_cache || d.no_cache,
         ),
         None => {
             let u = match &args.url {
@@ -228,6 +251,7 @@ pub fn run() -> Result<()> {
                 args.info_only,
                 args.explain,
                 args.output_dir.as_deref(),
+                args.no_cache,
             )
         }
         Some(Commands::Presets)
@@ -235,15 +259,16 @@ pub fn run() -> Result<()> {
         | Some(Commands::Completions(_))
         | Some(Commands::Batch(_))
         | Some(Commands::Config(_))
-        | Some(Commands::Debug(_)) => unreachable!(),
+        | Some(Commands::Debug(_))
+        | Some(Commands::Cache { .. }) => unreachable!(),
     };
 
-    // 7. Dependency check
+    // 10. Dependency check
     Downloader::verify_dependencies()?;
 
-    // 8. Fetch & Inspect Metadata
+    // 11. Fetch & Inspect Metadata
     println!("\n🔍 Inspecting media metadata...");
-    let meta = Downloader::fetch_metadata(&url)?;
+    let meta = Downloader::fetch_metadata_cached(&url, !no_cache)?;
 
     // 9. Automatic Classification / Preset Resolution
     let preset_name = if let Some(p_name) = explicit_preset {

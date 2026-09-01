@@ -20,10 +20,26 @@ impl Downloader {
         YtDlpEngine::check_binary(bin, test_args)
     }
 
-    /// Fetch video metadata through the Provider registry.
-    pub fn fetch_metadata(url: &str) -> Result<VideoMetadata> {
+    /// Fetch video metadata, utilizing the local cache if enabled.
+    pub fn fetch_metadata_cached(url: &str, use_cache: bool) -> Result<VideoMetadata> {
+        let cache = crate::cache::MetadataCache::new();
+        if use_cache {
+            if let Some(cached) = cache.get(url) {
+                return Ok(cached);
+            }
+        }
+
         let registry = ProviderRegistry::new();
-        registry.find_provider(url).analyze(url)
+        let meta = registry.find_provider(url).analyze(url)?;
+
+        cache.set(url, &meta, None);
+
+        Ok(meta)
+    }
+
+    /// Fetch video metadata through the Provider registry (cached by default).
+    pub fn fetch_metadata(url: &str) -> Result<VideoMetadata> {
+        Self::fetch_metadata_cached(url, true)
     }
 
     /// Execute the download process through the Provider registry.

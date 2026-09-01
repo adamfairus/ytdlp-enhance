@@ -19,6 +19,7 @@ fn test_classify_youtube_music() {
         extractor: Some("youtube".to_string()),
         subtitles: None,
         automatic_captions: None,
+        is_live: None,
     };
 
     let classified = SmartClassifier::classify("https://music.youtube.com/watch?v=abc", &meta);
@@ -49,6 +50,7 @@ fn test_classify_tiktok_url() {
         extractor: Some("tiktok".to_string()),
         subtitles: None,
         automatic_captions: None,
+        is_live: None,
     };
 
     let classified = SmartClassifier::classify("https://www.tiktok.com/@creator/video/123", &meta);
@@ -78,6 +80,7 @@ fn test_classify_vertical_shorts() {
         extractor: Some("youtube".to_string()),
         subtitles: None,
         automatic_captions: None,
+        is_live: None,
     };
 
     let classified = SmartClassifier::classify("https://www.youtube.com/shorts/short123", &meta);
@@ -107,6 +110,7 @@ fn test_classify_standard_video() {
         extractor: Some("youtube".to_string()),
         subtitles: None,
         automatic_captions: None,
+        is_live: None,
     };
 
     let classified = SmartClassifier::classify("https://www.youtube.com/watch?v=vid123", &meta);

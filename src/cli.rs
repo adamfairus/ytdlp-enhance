@@ -40,6 +40,10 @@ pub struct Cli {
     /// Custom output directory
     #[arg(short = 'o', long = "output-dir")]
     pub output_dir: Option<String>,
+
+    /// Bypass local metadata cache
+    #[arg(long, help = "Bypass local metadata cache")]
+    pub no_cache: bool,
 }
 
 #[derive(Subcommand, Debug, Clone)]
@@ -70,6 +74,24 @@ pub enum Commands {
 
     /// Inspect raw extractor metadata JSON for developers
     Debug(DebugArgs),
+
+    /// Manage the local metadata cache
+    Cache {
+        #[command(subcommand)]
+        action: CacheAction,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum CacheAction {
+    /// Remove expired items from the metadata cache
+    Clean,
+
+    /// Clear all metadata cache files
+    Purge,
+
+    /// Print the metadata cache directory path
+    Path,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -97,6 +119,10 @@ pub struct DownloadArgs {
     /// Custom output directory
     #[arg(short = 'o', long = "output-dir")]
     pub output_dir: Option<String>,
+
+    /// Bypass local metadata cache
+    #[arg(long, help = "Bypass local metadata cache")]
+    pub no_cache: bool,
 }
 
 #[derive(Args, Debug, Clone)]
