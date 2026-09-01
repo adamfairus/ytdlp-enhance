@@ -4,10 +4,23 @@
 
 ---
 
-## ✨ Fitur Utama (v1.7.0 Stable Release)
+## 🚀 Instalasi Cepat (One-Line Installer)
 
+Pasang `dlp` secara instan menggunakan script instalasi otomatis:
+```bash
+curl -fsSL https://raw.githubusercontent.com/adamfairus/ytdlp-enhance/main/install.sh | bash
+```
+
+---
+
+## ✨ Fitur Utama (v2.0.0 Milestone Release)
+
+- **📦 Cross-Platform Distribution & Single Binary (v2.0)**:
+  - Distribusi binary mandiri ultra-ringkas (3.4 MB stripped / 1.7 MB compressed) dengan kompilasi LTO fat dan optimasi level 3.
+  - Script instalasi otomatis satu-baris `install.sh` yang mendeteksi OS/arsitektur, mengonfigurasi `$PATH`, dan memverifikasi dependensi.
+  - Skema migrasi konfigurasi otomatis `dlp config migrate` antar versi mayor.
 - **🧪 Comprehensive Verification Matrix & Regression Protection (v1.7)**:
-  - 17 test suites dengan **53 unit, integration, snapshot, dan regression tests** (100% Green).
+  - 17 test suites dengan **54 unit, integration, snapshot, dan regression tests** (100% Green).
   - Golden regression tests untuk URL edge cases (YouTube Shorts, Live, Music, embed, TikTok desktop & shortlink, URL queries).
   - Terminal snapshot testing untuk memastikan stabilitas visual Decision Trace, Diagnostic Report, dan Batch Scheduler.
   - Property-based testing untuk penegakan batas resolusi, orientasi video, dan kebijakan preset.
@@ -105,4 +118,4 @@ Jalankan seluruh test suite dengan:
 ```bash
 cargo test
 ```
-Semua 53 pengujian unit, integrasi, snapshot, dan regression terverifikasi 100% *green*.
+Semua 54 pengujian unit, integrasi, snapshot, dan regression terverifikasi 100% *green*.

@@ -58,3 +58,22 @@ fn test_config_mutation_and_validation() {
     assert!(config.set_value("nonexistent_key", "value").is_err());
 }
 
+#[test]
+fn test_config_version_migration() {
+    let legacy_toml = r#"
+        default_preset = "tiktok"
+        download_dir = "/media/vids"
+    "#;
+
+    let mut parsed: Config = toml::from_str(legacy_toml).unwrap();
+    assert_eq!(parsed.default_preset, "tiktok");
+    assert_eq!(parsed.download_dir, Some("/media/vids".to_string()));
+    assert_eq!(parsed.version, "2.0");
+
+    parsed.version = "1.0".to_string();
+    assert!(parsed.migrate());
+    assert_eq!(parsed.version, "2.0");
+    assert!(!parsed.migrate()); // Second time shouldn't migrate
+}
+
+

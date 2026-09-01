@@ -32,11 +32,17 @@ impl Default for DownloadPolicy {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default = "default_version")]
+    pub version: String,
     #[serde(default = "default_preset")]
     pub default_preset: String,
     pub download_dir: Option<String>,
     #[serde(default)]
     pub download: DownloadPolicy,
+}
+
+fn default_version() -> String {
+    "2.0".to_string()
 }
 
 fn default_preset() -> String {
@@ -46,6 +52,7 @@ fn default_preset() -> String {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            version: default_version(),
             default_preset: default_preset(),
             download_dir: None,
             download: DownloadPolicy::default(),
@@ -84,6 +91,15 @@ impl Config {
             .map_err(|e| DlpError::ConfigParse(e.to_string()))?;
         fs::write(&path, toml_str)?;
         Ok(path)
+    }
+
+    pub fn migrate(&mut self) -> bool {
+        let mut changed = false;
+        if self.version != "2.0" {
+            self.version = "2.0".to_string();
+            changed = true;
+        }
+        changed
     }
 
     pub fn set_value(&mut self, key: &str, value: &str) -> Result<()> {

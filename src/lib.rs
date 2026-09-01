@@ -104,6 +104,16 @@ pub fn run() -> Result<()> {
                 let saved_path = cfg.save()?;
                 println!("✅ Updated '{}' = '{}' in {}", key, value, saved_path.display());
             }
+            Some(cli::ConfigSubcommands::Migrate) => {
+                let mut cfg = config::Config::load();
+                let did_migrate = cfg.migrate();
+                let saved_path = cfg.save()?;
+                if did_migrate {
+                    println!("✅ Successfully migrated configuration to v2.0 schema at {}", saved_path.display());
+                } else {
+                    println!("ℹ️  Configuration is already up to date with v2.0 schema at {}", saved_path.display());
+                }
+            }
         }
         return Ok(());
     }

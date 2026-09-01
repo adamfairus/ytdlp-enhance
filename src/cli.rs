@@ -5,7 +5,7 @@ use clap_complete::Shell;
 #[command(
     name = "dlp",
     author = "Adam F",
-    version = "1.7.0",
+    version = "2.0.0",
     about = "Smart orchestration and CLI wrapper for yt-dlp and ffmpeg",
     long_about = "dlp is an intelligent CLI orchestration layer above yt-dlp and ffmpeg that inspects metadata, detects video orientation, and applies customizable presets and batch downloads."
 )]
@@ -161,6 +161,9 @@ pub enum ConfigSubcommands {
         /// Value to assign
         value: String,
     },
+
+    /// Migrate existing configuration file to latest v2.0 schema
+    Migrate,
 }
 
 #[derive(Args, Debug, Clone)]
